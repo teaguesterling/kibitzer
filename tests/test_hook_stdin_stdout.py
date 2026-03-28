@@ -332,23 +332,20 @@ class TestStateCorruption:
     """Hooks should handle corrupted or missing state gracefully."""
 
     def test_empty_state_file(self, tmp_path):
-        """Empty state.json should not crash — fall back to fresh state."""
+        """Empty state.json should fall back to fresh state, not crash."""
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
         (state_dir / "state.json").write_text("")
 
         hook_input = {"tool_name": "Read", "tool_input": {"file_path": "x"}}
-        # This will crash with json.JSONDecodeError — let's see
         code, stdout, stderr = _run_hook(
             "kibitzer.hooks.pre_tool_use", hook_input, str(tmp_path),
         )
-        # Currently crashes — this documents the behavior
-        # If code != 0, state corruption is not handled gracefully
-        if code != 0:
-            pytest.skip("State corruption not yet handled — known gap")
+        assert code == 0
+        assert stdout.strip() == ""
 
     def test_invalid_json_state_file(self, tmp_path):
-        """Garbage in state.json should not crash."""
+        """Garbage in state.json should fall back to fresh state, not crash."""
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
         (state_dir / "state.json").write_text("{invalid json!!")
@@ -357,8 +354,40 @@ class TestStateCorruption:
         code, stdout, stderr = _run_hook(
             "kibitzer.hooks.pre_tool_use", hook_input, str(tmp_path),
         )
-        if code != 0:
-            pytest.skip("State corruption not yet handled — known gap")
+        assert code == 0
+        assert stdout.strip() == ""
+
+    def test_json_array_state_file(self, tmp_path):
+        """state.json containing a JSON array (not object) should fall back."""
+        state_dir = tmp_path / ".kibitzer"
+        state_dir.mkdir()
+        (state_dir / "state.json").write_text("[1, 2, 3]")
+
+        hook_input = {"tool_name": "Read", "tool_input": {"file_path": "x"}}
+        code, stdout, _ = _run_hook(
+            "kibitzer.hooks.pre_tool_use", hook_input, str(tmp_path),
+        )
+        assert code == 0
+
+    def test_post_hook_recovers_from_corruption(self, tmp_path):
+        """PostToolUse should recover from corrupt state and write a clean one."""
+        state_dir = tmp_path / ".kibitzer"
+        state_dir.mkdir()
+        (state_dir / "state.json").write_text("not json at all")
+
+        hook_input = {
+            "tool_name": "Read",
+            "tool_input": {"file_path": "x"},
+            "tool_result": {"content": "y"},
+        }
+        code, _, _ = _run_hook(
+            "kibitzer.hooks.post_tool_use", hook_input, str(tmp_path),
+        )
+        assert code == 0
+
+        # State should now be valid
+        state = load_state(state_dir)
+        assert state["total_calls"] == 1
 
     def test_missing_kibitzer_dir(self, tmp_path):
         """No .kibitzer/ dir at all — should use defaults."""

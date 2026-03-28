@@ -36,12 +36,19 @@ def fresh_state(default_mode: str = "implement") -> dict[str, Any]:
 
 
 def load_state(state_dir: Path) -> dict[str, Any]:
-    """Load state from state_dir/state.json. Returns fresh state if missing."""
+    """Load state from state_dir/state.json. Returns fresh state if missing or corrupt."""
     state_file = state_dir / STATE_FILENAME
     if not state_file.exists():
         return fresh_state()
-    with open(state_file) as f:
-        saved = json.load(f)
+    try:
+        text = state_file.read_text().strip()
+        if not text:
+            return fresh_state()
+        saved = json.loads(text)
+        if not isinstance(saved, dict):
+            return fresh_state()
+    except (json.JSONDecodeError, OSError):
+        return fresh_state()
     # Merge with fresh state to fill any missing fields
     state = fresh_state()
     state.update(saved)
@@ -49,8 +56,10 @@ def load_state(state_dir: Path) -> dict[str, Any]:
 
 
 def save_state(state: dict[str, Any], state_dir: Path) -> None:
-    """Write state to state_dir/state.json. Creates directory if needed."""
+    """Write state to state_dir/state.json atomically. Creates directory if needed."""
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / STATE_FILENAME
-    with open(state_file, "w") as f:
+    tmp_file = state_file.with_suffix(".tmp")
+    with open(tmp_file, "w") as f:
         json.dump(state, f, indent=2)
+    tmp_file.replace(state_file)
