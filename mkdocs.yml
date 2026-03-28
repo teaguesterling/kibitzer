@@ -1,0 +1,55 @@
+site_name: Kibitzer
+site_description: Claude Code extension that watches agent tool calls and suggests structured alternatives
+site_url: https://kibitzer.readthedocs.io
+
+repo_name: teague/kibitzer
+repo_url: https://github.com/teague/kibitzer
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Modes: modes.md
+    - Configuration: configuration.md
+  - How It Works:
+    - Architecture: architecture.md
+    - Coach: coach.md
+    - Interceptors: interceptors.md
+  - Integration: integration.md

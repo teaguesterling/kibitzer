@@ -7,3 +7,5 @@ build/
 .kibitzer/intercept.log
 .pytest_cache/
 .ruff_cache/
+.venv/
+site/

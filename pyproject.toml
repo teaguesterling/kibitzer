@@ -6,11 +6,37 @@ build-backend = "hatchling.build"
 name = "kibitzer"
 version = "0.1.0"
 description = "Claude Code extension that watches agent tool calls and suggests structured alternatives"
+readme = "docs/index.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Teague Sterling" },
+]
+keywords = ["claude-code", "hooks", "mcp", "agent", "toolcraft", "developer-tools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "click>=8.1",
     "mcp[cli]>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/teague/kibitzer"
+Repository = "https://github.com/teague/kibitzer"
+Issues = "https://github.com/teague/kibitzer/issues"
+Documentation = "https://kibitzer.readthedocs.io"
 
 [project.scripts]
 kibitzer = "kibitzer.cli:cli"
@@ -28,4 +54,8 @@ dev = [
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
     "ruff>=0.1",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
 ]
