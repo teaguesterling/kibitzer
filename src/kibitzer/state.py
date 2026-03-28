@@ -25,6 +25,13 @@ def fresh_state(default_mode: str = "implement") -> dict[str, Any]:
         "suggestions_given": [],
         "model": None,
         "session_id": None,
+        # Coach observation counters
+        "consecutive_edit_failures": 0,
+        "last_failed_edit_file": "",
+        "consecutive_reads": 0,
+        "edits_since_test": 0,
+        "last_edit_turn": 0,
+        "semantic_tools_used": False,
     }
 
 

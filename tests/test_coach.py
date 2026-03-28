@@ -37,7 +37,7 @@ class TestShouldFire:
 class TestDetectPatterns:
     def test_edit_without_test(self):
         state = fresh_state()
-        state["tools_used_in_mode"]["Edit"] = 4
+        state["edits_since_test"] = 5
         patterns = detect_patterns(state)
         # patterns is list of (pattern_id, message) tuples
         assert any("test" in msg.lower() for _, msg in patterns)
@@ -83,21 +83,21 @@ class TestDetectPatterns:
 class TestGenerateSuggestions:
     def test_dedup_already_given(self):
         state = fresh_state()
-        state["tools_used_in_mode"]["Edit"] = 5
+        state["edits_since_test"] = 5
         state["suggestions_given"] = ["edit_without_test"]
         suggestions = generate_suggestions(state)
         assert len(suggestions) == 0
 
     def test_returns_new_suggestions(self):
         state = fresh_state()
-        state["tools_used_in_mode"]["Edit"] = 5
+        state["edits_since_test"] = 5
         state["suggestions_given"] = []
         suggestions = generate_suggestions(state)
         assert len(suggestions) > 0
 
     def test_marks_suggestions_as_given(self):
         state = fresh_state()
-        state["tools_used_in_mode"]["Edit"] = 5
+        state["edits_since_test"] = 5
         state["suggestions_given"] = []
         generate_suggestions(state)
         assert len(state["suggestions_given"]) > 0

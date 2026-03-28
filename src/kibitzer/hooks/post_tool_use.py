@@ -42,9 +42,10 @@ def handle_post_tool_use(
     state = load_state(state_dir)
 
     tool_name = hook_input.get("tool_name", "")
+    tool_input = hook_input.get("tool_input", {})
     success = _detect_success(hook_input)
 
-    update_counters(state, tool_name, success)
+    update_counters(state, tool_name, success, tool_input=tool_input)
 
     messages = []
 

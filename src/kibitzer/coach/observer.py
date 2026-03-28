@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-_EDIT_THRESHOLD = 3
+# Thresholds
+_EDITS_SINCE_TEST_THRESHOLD = 4  # fire after 5th edit without test (> 4)
 _FAILURE_RATIO_THRESHOLD = 0.5
 _MIN_CALLS_FOR_RATIO = 5
 _OSCILLATION_THRESHOLD = 4
+_CONSECUTIVE_EDIT_FAILURES_THRESHOLD = 2
+_CONSECUTIVE_READS_THRESHOLD = 3
+_SEMANTIC_MIN_CALLS = 10
+_SEMANTIC_MIN_SEARCHES = 5
+_ANALYSIS_LOOP_THRESHOLD = 15
 
 
 def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
@@ -15,14 +21,55 @@ def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
     patterns = []
     tools = state.get("tools_used_in_mode", {})
 
-    # Edit streak without tests
-    edit_count = tools.get("Edit", 0) + tools.get("Write", 0)
-    bash_count = tools.get("Bash", 0)
-    if edit_count > _EDIT_THRESHOLD and bash_count == 0:
+    # Obs 1: Repeated edit failures on the same file
+    if state.get("consecutive_edit_failures", 0) >= _CONSECUTIVE_EDIT_FAILURES_THRESHOLD:
+        failed_file = state.get("last_failed_edit_file", "unknown")
+        patterns.append((
+            "repeated_edit_failure",
+            f"Edit failed {state['consecutive_edit_failures']} times on {failed_file}. "
+            f"The old_string may have wrong indentation. "
+            f"Try Read({failed_file}) first to see the exact current content.",
+        ))
+
+    # Obs 2: Sequential file reads
+    if state.get("consecutive_reads", 0) >= _CONSECUTIVE_READS_THRESHOLD:
+        n = state["consecutive_reads"]
+        patterns.append((
+            "sequential_reads",
+            f"You've read {n} files one at a time. "
+            "Consider using FindDefinitions or CodeStructure to get an overview in one call.",
+        ))
+
+    # Obs 3: Edit streak without tests (improved — uses edits_since_test counter)
+    edits_since_test = state.get("edits_since_test", 0)
+    if edits_since_test > _EDITS_SINCE_TEST_THRESHOLD:
         patterns.append((
             "edit_without_test",
-            f"You've edited {edit_count} files without running tests. "
+            f"You've made {edits_since_test} edits without running tests. "
             "Consider running tests to verify your changes.",
+        ))
+
+    # Obs 4: Ignoring available semantic tools
+    search_count = (tools.get("Read", 0) + tools.get("Grep", 0) +
+                    tools.get("Glob", 0) + tools.get("file_search", 0))
+    if (state.get("total_calls", 0) > _SEMANTIC_MIN_CALLS
+            and search_count >= _SEMANTIC_MIN_SEARCHES
+            and not state.get("semantic_tools_used", False)):
+        patterns.append((
+            "semantic_underuse",
+            "You've been searching through files manually. "
+            "FindDefinitions shows all functions and classes across the codebase "
+            "with their types and locations — one call instead of searching file by file.",
+        ))
+
+    # Obs 7: Analysis loop (Opus pattern) — reading without editing
+    turns_since_edit = state.get("total_calls", 0) - state.get("last_edit_turn", 0)
+    if (turns_since_edit > _ANALYSIS_LOOP_THRESHOLD
+            and state.get("total_calls", 0) > _ANALYSIS_LOOP_THRESHOLD):
+        patterns.append((
+            "analysis_loop",
+            f"You've spent {turns_since_edit} turns reading without making changes. "
+            "Consider starting with the most confident fix — you can verify with tests and adjust.",
         ))
 
     # High failure ratio
