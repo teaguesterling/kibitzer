@@ -15,41 +15,53 @@ _SEMANTIC_MIN_CALLS = 10
 _SEMANTIC_MIN_SEARCHES = 5
 _ANALYSIS_LOOP_THRESHOLD = 15
 
+# Mode sets for pattern applicability
+_WRITABLE_MODES = {"implement", "test_dev", "create", "free"}
+_READONLY_MODES = {"debug", "review"}
+
 
 def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
     """Detect patterns in state. Returns list of (pattern_id, message) tuples."""
     patterns = []
     tools = state.get("tools_used_in_mode", {})
+    mode = state.get("mode", "implement")
 
     # Obs 1: Repeated edit failures on the same file
-    if state.get("consecutive_edit_failures", 0) >= _CONSECUTIVE_EDIT_FAILURES_THRESHOLD:
-        failed_file = state.get("last_failed_edit_file", "unknown")
-        patterns.append((
-            "repeated_edit_failure",
-            f"Edit failed {state['consecutive_edit_failures']} times on {failed_file}. "
-            f"The old_string may have wrong indentation. "
-            f"Try Read({failed_file}) first to see the exact current content.",
-        ))
+    # Only in writable modes — you shouldn't be editing in debug/review anyway
+    if mode in _WRITABLE_MODES:
+        if state.get("consecutive_edit_failures", 0) >= _CONSECUTIVE_EDIT_FAILURES_THRESHOLD:
+            failed_file = state.get("last_failed_edit_file", "unknown")
+            patterns.append((
+                "repeated_edit_failure",
+                f"Edit failed {state['consecutive_edit_failures']} times on {failed_file}. "
+                f"The old_string may have wrong indentation. "
+                f"Try Read({failed_file}) first to see the exact current content.",
+            ))
 
     # Obs 2: Sequential file reads
-    if state.get("consecutive_reads", 0) >= _CONSECUTIVE_READS_THRESHOLD:
-        n = state["consecutive_reads"]
-        patterns.append((
-            "sequential_reads",
-            f"You've read {n} files one at a time. "
-            "Consider using FindDefinitions or CodeStructure to get an overview in one call.",
-        ))
+    # Skip in debug/review — sequential reading IS the job there
+    if mode not in _READONLY_MODES:
+        if state.get("consecutive_reads", 0) >= _CONSECUTIVE_READS_THRESHOLD:
+            n = state["consecutive_reads"]
+            patterns.append((
+                "sequential_reads",
+                f"You've read {n} files one at a time. "
+                "Consider using FindDefinitions or CodeStructure to get an overview in one call.",
+            ))
 
-    # Obs 3: Edit streak without tests (improved — uses edits_since_test counter)
-    edits_since_test = state.get("edits_since_test", 0)
-    if edits_since_test > _EDITS_SINCE_TEST_THRESHOLD:
-        patterns.append((
-            "edit_without_test",
-            f"You've made {edits_since_test} edits without running tests. "
-            "Consider running tests to verify your changes.",
-        ))
+    # Obs 3: Edit streak without tests
+    # Only in code-editing modes — not debug/review (read-only) or document (no tests needed)
+    if mode in _WRITABLE_MODES and mode != "document":
+        edits_since_test = state.get("edits_since_test", 0)
+        if edits_since_test > _EDITS_SINCE_TEST_THRESHOLD:
+            patterns.append((
+                "edit_without_test",
+                f"You've made {edits_since_test} edits without running tests. "
+                "Consider running tests to verify your changes.",
+            ))
 
     # Obs 4: Ignoring available semantic tools
+    # Relevant in any mode — searching is always valid
     search_count = (tools.get("Read", 0) + tools.get("Grep", 0) +
                     tools.get("Glob", 0) + tools.get("file_search", 0))
     if (state.get("total_calls", 0) > _SEMANTIC_MIN_CALLS
@@ -62,17 +74,19 @@ def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
             "with their types and locations — one call instead of searching file by file.",
         ))
 
-    # Obs 7: Analysis loop (Opus pattern) — reading without editing
-    turns_since_edit = state.get("total_calls", 0) - state.get("last_edit_turn", 0)
-    if (turns_since_edit > _ANALYSIS_LOOP_THRESHOLD
-            and state.get("total_calls", 0) > _ANALYSIS_LOOP_THRESHOLD):
-        patterns.append((
-            "analysis_loop",
-            f"You've spent {turns_since_edit} turns reading without making changes. "
-            "Consider starting with the most confident fix — you can verify with tests and adjust.",
-        ))
+    # Obs 7: Analysis loop — reading without editing
+    # Skip in debug/review — not editing is correct behavior there
+    if mode not in _READONLY_MODES:
+        turns_since_edit = state.get("total_calls", 0) - state.get("last_edit_turn", 0)
+        if (turns_since_edit > _ANALYSIS_LOOP_THRESHOLD
+                and state.get("total_calls", 0) > _ANALYSIS_LOOP_THRESHOLD):
+            patterns.append((
+                "analysis_loop",
+                f"You've spent {turns_since_edit} turns reading without making changes. "
+                "Consider starting with the most confident fix — you can verify with tests and adjust.",
+            ))
 
-    # High failure ratio
+    # High failure ratio — relevant in any mode
     total = state.get("failure_count", 0) + state.get("success_count", 0)
     if total >= _MIN_CALLS_FOR_RATIO:
         ratio = state.get("failure_count", 0) / total
@@ -84,15 +98,15 @@ def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
                 "Consider stepping back to read before editing.",
             ))
 
-    # Oscillation
+    # Oscillation — relevant in any mode
     if state.get("mode_switches", 0) > _OSCILLATION_THRESHOLD:
         patterns.append((
             "oscillation",
             "Frequent mode switches. Consider using free mode for this task.",
         ))
 
-    # Mode mismatch: editing in debug mode
-    if state.get("mode") == "debug" and tools.get("Edit", 0) > 0:
+    # Mode mismatch: editing in debug mode — only in debug
+    if mode == "debug" and tools.get("Edit", 0) > 0:
         patterns.append((
             "debug_mode_edits",
             "You're editing files in debug mode. "

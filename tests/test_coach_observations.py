@@ -396,3 +396,128 @@ class TestCoachFullCycle:
         patterns = detect_patterns(state)
         matching = [pid for pid, _ in patterns if pid == "analysis_loop"]
         assert len(matching) == 0
+
+
+# ===========================================================================
+# Mode-awareness — patterns only fire in appropriate modes
+# ===========================================================================
+
+class TestModeAwareness:
+    """Patterns should respect the current mode."""
+
+    def _state_with(self, mode, **overrides):
+        state = fresh_state()
+        state["mode"] = mode
+        state.update(overrides)
+        return state
+
+    # --- Analysis loop ---
+
+    def test_analysis_loop_suppressed_in_debug(self):
+        """In debug mode, not editing is correct — no analysis loop warning."""
+        state = self._state_with("debug", total_calls=20, last_edit_turn=0)
+        patterns = detect_patterns(state)
+        assert not any(pid == "analysis_loop" for pid, _ in patterns)
+
+    def test_analysis_loop_suppressed_in_review(self):
+        state = self._state_with("review", total_calls=20, last_edit_turn=0)
+        patterns = detect_patterns(state)
+        assert not any(pid == "analysis_loop" for pid, _ in patterns)
+
+    def test_analysis_loop_fires_in_implement(self):
+        state = self._state_with("implement", total_calls=20, last_edit_turn=0)
+        patterns = detect_patterns(state)
+        assert any(pid == "analysis_loop" for pid, _ in patterns)
+
+    def test_analysis_loop_fires_in_free(self):
+        state = self._state_with("free", total_calls=20, last_edit_turn=0)
+        patterns = detect_patterns(state)
+        assert any(pid == "analysis_loop" for pid, _ in patterns)
+
+    # --- Sequential reads ---
+
+    def test_sequential_reads_suppressed_in_debug(self):
+        """In debug mode, reading sequentially is expected."""
+        state = self._state_with("debug", consecutive_reads=5)
+        patterns = detect_patterns(state)
+        assert not any(pid == "sequential_reads" for pid, _ in patterns)
+
+    def test_sequential_reads_suppressed_in_review(self):
+        state = self._state_with("review", consecutive_reads=5)
+        patterns = detect_patterns(state)
+        assert not any(pid == "sequential_reads" for pid, _ in patterns)
+
+    def test_sequential_reads_fires_in_implement(self):
+        state = self._state_with("implement", consecutive_reads=5)
+        patterns = detect_patterns(state)
+        assert any(pid == "sequential_reads" for pid, _ in patterns)
+
+    # --- Edit without test ---
+
+    def test_edit_without_test_suppressed_in_debug(self):
+        state = self._state_with("debug", edits_since_test=10)
+        patterns = detect_patterns(state)
+        assert not any(pid == "edit_without_test" for pid, _ in patterns)
+
+    def test_edit_without_test_suppressed_in_review(self):
+        state = self._state_with("review", edits_since_test=10)
+        patterns = detect_patterns(state)
+        assert not any(pid == "edit_without_test" for pid, _ in patterns)
+
+    def test_edit_without_test_fires_in_test_dev(self):
+        state = self._state_with("test_dev", edits_since_test=10)
+        patterns = detect_patterns(state)
+        assert any(pid == "edit_without_test" for pid, _ in patterns)
+
+    # --- Repeated edit failure ---
+
+    def test_edit_failure_suppressed_in_debug(self):
+        state = self._state_with(
+            "debug", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
+        )
+        patterns = detect_patterns(state)
+        assert not any(pid == "repeated_edit_failure" for pid, _ in patterns)
+
+    def test_edit_failure_fires_in_create(self):
+        state = self._state_with(
+            "create", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
+        )
+        patterns = detect_patterns(state)
+        assert any(pid == "repeated_edit_failure" for pid, _ in patterns)
+
+    # --- Semantic underuse fires in all modes ---
+
+    def test_semantic_underuse_fires_in_debug(self):
+        """Even in debug mode, suggesting semantic tools is helpful."""
+        state = self._state_with(
+            "debug",
+            total_calls=15,
+            tools_used_in_mode={"Read": 8, "Grep": 3},
+            semantic_tools_used=False,
+        )
+        patterns = detect_patterns(state)
+        assert any(pid == "semantic_underuse" for pid, _ in patterns)
+
+    def test_semantic_underuse_fires_in_review(self):
+        state = self._state_with(
+            "review",
+            total_calls=15,
+            tools_used_in_mode={"Read": 8, "Grep": 3},
+            semantic_tools_used=False,
+        )
+        patterns = detect_patterns(state)
+        assert any(pid == "semantic_underuse" for pid, _ in patterns)
+
+    # --- Document mode ---
+
+    def test_edit_without_test_suppressed_in_document(self):
+        """Editing docs doesn't need test runs."""
+        state = self._state_with("document", edits_since_test=10)
+        patterns = detect_patterns(state)
+        assert not any(pid == "edit_without_test" for pid, _ in patterns)
+
+    def test_analysis_loop_fires_in_document(self):
+        """Document mode is writable — if you're not writing, something's off."""
+        state = self._state_with("document", total_calls=20, last_edit_turn=0)
+        patterns = detect_patterns(state)
+        assert any(pid == "analysis_loop" for pid, _ in patterns)
