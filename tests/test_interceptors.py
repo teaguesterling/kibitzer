@@ -1,6 +1,4 @@
-import pytest
 from unittest.mock import patch
-from kibitzer.interceptors.base import InterceptMode, Suggestion
 from kibitzer.interceptors.blq import BlqInterceptor
 from kibitzer.interceptors.jetsam import JetsamInterceptor
 from kibitzer.interceptors.fledgling import FledglingInterceptor

@@ -1,4 +1,3 @@
-import json
 import pytest
 from unittest.mock import patch
 from kibitzer.hooks.pre_tool_use import handle_pre_tool_use

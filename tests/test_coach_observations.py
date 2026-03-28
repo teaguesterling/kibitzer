@@ -8,7 +8,6 @@ Based on ~/Projects/judgementalmonad.com/drafts/kibitzer-coaching-observations.m
 7. Analysis loop (Opus pattern)
 """
 
-import pytest
 from kibitzer.state import fresh_state
 from kibitzer.controller.mode_controller import update_counters
 from kibitzer.coach.observer import detect_patterns

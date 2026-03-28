@@ -1,7 +1,6 @@
 """Shared test fixtures for kibitzer."""
 
 import pytest
-from pathlib import Path
 
 
 @pytest.fixture

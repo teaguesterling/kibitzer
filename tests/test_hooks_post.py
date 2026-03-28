@@ -1,4 +1,3 @@
-import json
 import pytest
 from kibitzer.hooks.post_tool_use import handle_post_tool_use
 from kibitzer.state import fresh_state, save_state, load_state

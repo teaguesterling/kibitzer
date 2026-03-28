@@ -1,6 +1,4 @@
-import json
 import pytest
-from pathlib import Path
 from kibitzer.state import fresh_state, save_state, load_state
 from kibitzer.mcp.server import change_tool_mode, get_feedback
 

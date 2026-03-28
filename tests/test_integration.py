@@ -1,8 +1,6 @@
 """Integration tests: full hook chains with realistic scenarios."""
 
-import json
 import pytest
-from pathlib import Path
 from kibitzer.hooks.pre_tool_use import handle_pre_tool_use
 from kibitzer.hooks.post_tool_use import handle_post_tool_use
 from kibitzer.state import fresh_state, save_state, load_state

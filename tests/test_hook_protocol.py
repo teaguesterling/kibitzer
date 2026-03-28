@@ -7,7 +7,6 @@ common fields (session_id, cwd, hook_event_name, tool_use_id).
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import patch
 
 from kibitzer.hooks.pre_tool_use import handle_pre_tool_use

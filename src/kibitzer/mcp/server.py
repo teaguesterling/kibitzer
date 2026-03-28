@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from kibitzer.coach.suggestions import generate_suggestions
 from kibitzer.config import get_mode_policy, load_config
-from kibitzer.state import fresh_state, load_state, save_state
+from kibitzer.state import load_state, save_state
 
 
 def change_tool_mode(

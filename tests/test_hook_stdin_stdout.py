@@ -8,7 +8,6 @@ import json
 import subprocess
 import sys
 import pytest
-from pathlib import Path
 
 from kibitzer.state import fresh_state, save_state, load_state
 

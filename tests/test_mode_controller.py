@@ -5,7 +5,6 @@ from kibitzer.controller.mode_controller import (
     update_counters,
     check_transitions,
     should_transition,
-    Transition,
 )
 from pathlib import Path
 

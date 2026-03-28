@@ -1,6 +1,5 @@
-import pytest
 from pathlib import Path
-from kibitzer.config import load_config, get_mode_policy, DEFAULT_CONFIG_PATH
+from kibitzer.config import load_config, get_mode_policy
 
 
 def test_load_default_config():

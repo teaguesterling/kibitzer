@@ -1,5 +1,4 @@
-import pytest
-from kibitzer.guards.path_guard import check_path, PathGuardResult
+from kibitzer.guards.path_guard import check_path
 
 
 def _mode_config(writable):

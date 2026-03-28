@@ -1,5 +1,3 @@
-import json
-import pytest
 from kibitzer.state import load_state, save_state, fresh_state
 
 
