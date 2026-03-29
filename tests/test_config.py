@@ -62,3 +62,25 @@ def test_plugin_config():
     config = load_config(project_dir=Path("/nonexistent"))
     assert config["plugins"]["blq"]["mode"] == "observe"
     assert config["plugins"]["blq"]["enabled"] is True
+
+
+# --- Config corruption resilience ---
+
+def test_corrupt_project_config_uses_defaults(tmp_path):
+    """Invalid TOML in project config should fall back to defaults."""
+    project_config = tmp_path / ".kibitzer" / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("this is not valid toml {{{{")
+    config = load_config(project_dir=tmp_path)
+    # Should have all default modes
+    assert "implement" in config["modes"]
+    assert config["modes"]["implement"]["writable"] == ["src/", "lib/"]
+
+
+def test_empty_project_config_uses_defaults(tmp_path):
+    """Empty project config should use defaults (empty TOML is valid)."""
+    project_config = tmp_path / ".kibitzer" / "config.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("")
+    config = load_config(project_dir=tmp_path)
+    assert "implement" in config["modes"]

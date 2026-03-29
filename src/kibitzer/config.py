@@ -37,9 +37,12 @@ def load_config(project_dir: Path | None = None) -> dict:
     if project_dir is not None:
         project_config = project_dir / ".kibitzer" / "config.toml"
         if project_config.exists():
-            with open(project_config, "rb") as f:
-                overrides = tomllib.load(f)
-            config = _deep_merge(config, overrides)
+            try:
+                with open(project_config, "rb") as f:
+                    overrides = tomllib.load(f)
+                config = _deep_merge(config, overrides)
+            except (tomllib.TOMLDecodeError, OSError):
+                pass  # corrupt project config — use defaults
 
     return config
 
