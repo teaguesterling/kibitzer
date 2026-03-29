@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from kibitzer.coach.observer import detect_patterns
@@ -20,13 +21,17 @@ def should_fire(state: dict[str, Any], config: dict) -> bool:
     return state.get("total_calls", 0) > 0 and state["total_calls"] % frequency == 0
 
 
-def generate_suggestions(state: dict[str, Any]) -> list[str]:
+def generate_suggestions(
+    state: dict[str, Any],
+    project_dir: Path | None = None,
+) -> list[str]:
     """Generate new suggestions, filtering out already-given ones.
 
     Mutates state["suggestions_given"] to track what's been suggested.
+    If project_dir is provided, fledgling queries enrich detection.
     """
     already_given = set(state.get("suggestions_given", []))
-    patterns = detect_patterns(state)
+    patterns = detect_patterns(state, project_dir=project_dir)
 
     new_suggestions = []
     for pattern_id, message in patterns:

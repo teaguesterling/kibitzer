@@ -1,7 +1,8 @@
-"""Detect tool usage patterns from state."""
+"""Detect tool usage patterns from state, optionally enriched by fledgling queries."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 # Thresholds
@@ -20,8 +21,15 @@ _WRITABLE_MODES = {"implement", "test_dev", "create", "free"}
 _READONLY_MODES = {"debug", "review"}
 
 
-def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
-    """Detect patterns in state. Returns list of (pattern_id, message) tuples."""
+def detect_patterns(
+    state: dict[str, Any],
+    project_dir: Path | None = None,
+) -> list[tuple[str, str]]:
+    """Detect patterns in state. Returns list of (pattern_id, message) tuples.
+
+    If project_dir is provided and fledgling is available, enriches detection
+    with conversation analytics queries.
+    """
     patterns = []
     tools = state.get("tools_used_in_mode", {})
     mode = state.get("mode", "implement")
@@ -112,5 +120,55 @@ def detect_patterns(state: dict[str, Any]) -> list[tuple[str, str]]:
             "You're editing files in debug mode. "
             "Use ChangeToolMode to switch to implement mode first.",
         ))
+
+    # --- Fledgling-enriched patterns ---
+    # These only fire if fledgling is available. They query conversation
+    # history for patterns that state.json alone can't detect.
+    if project_dir is not None:
+        patterns.extend(_detect_fledgling_patterns(state, project_dir))
+
+    return patterns
+
+
+def _detect_fledgling_patterns(
+    state: dict[str, Any],
+    project_dir: Path,
+) -> list[tuple[str, str]]:
+    """Detect patterns using fledgling conversation analytics."""
+    from kibitzer.coach.fledgling import is_available, repeated_search_patterns, replaceable_bash_commands
+
+    if not is_available(project_dir):
+        return []
+
+    patterns = []
+
+    # Repeated search patterns — same grep/read pattern 3+ times
+    repeated = repeated_search_patterns(project_dir)
+    if repeated:
+        top = repeated[0]
+        pattern_str = top.get("pattern", "?")
+        count = top.get("count", 3)
+        tool = top.get("tool", "Grep")
+        if len(pattern_str) > 60:
+            pattern_str = pattern_str[:57] + "..."
+        patterns.append((
+            "fledgling_repeated_search",
+            f"You've searched for '{pattern_str}' {count} times via {tool}. "
+            "FindDefinitions or CodeStructure may find what you need in one call.",
+        ))
+
+    # Bash commands with structured replacements
+    replaceable = replaceable_bash_commands(project_dir)
+    if replaceable:
+        top = replaceable[0]
+        cmd = top.get("command", "?")
+        alt = top.get("replaceable_by", "?")
+        count = top.get("count", 1)
+        if count >= 2:
+            patterns.append((
+                "fledgling_replaceable_bash",
+                f"You've run '{cmd}' {count} times via Bash. "
+                f"'{alt}' provides structured output for the same operation.",
+            ))
 
     return patterns

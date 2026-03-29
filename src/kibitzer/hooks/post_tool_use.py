@@ -57,7 +57,7 @@ def handle_post_tool_use(
         )
 
     if should_fire(state, config):
-        suggestions = generate_suggestions(state)
+        suggestions = generate_suggestions(state, project_dir=project_dir)
         for s in suggestions:
             messages.append(f"[kibitzer] {s}")
 

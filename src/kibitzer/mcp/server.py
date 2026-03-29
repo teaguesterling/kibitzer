@@ -78,7 +78,7 @@ def get_feedback(
         }
 
     if suggestions:
-        result["suggestions"] = generate_suggestions(state)
+        result["suggestions"] = generate_suggestions(state, project_dir=project_dir)
         save_state(state, state_dir)
 
     if intercepts:
