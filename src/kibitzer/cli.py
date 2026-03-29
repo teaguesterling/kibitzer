@@ -55,6 +55,7 @@ def init(hooks: bool, mcp: bool):
 
 
 def _merge_settings(project_dir: Path, pre_path: Path, post_path: Path) -> None:
+    """Merge kibitzer hooks into .claude/settings.json using relative paths."""
     settings_path = project_dir / ".claude" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,32 +64,35 @@ def _merge_settings(project_dir: Path, pre_path: Path, post_path: Path) -> None:
     else:
         settings = {}
 
+    # Use relative paths from project root for portability
+    rel_pre = str(pre_path.relative_to(project_dir))
+    rel_post = str(post_path.relative_to(project_dir))
+
     settings.setdefault("hooks", {})
     settings["hooks"].setdefault("PreToolUse", [])
     settings["hooks"].setdefault("PostToolUse", [])
 
     pre_entry = {
         "matcher": "",
-        "hooks": [{"type": "command", "command": str(pre_path)}],
+        "hooks": [{"type": "command", "command": rel_pre}],
     }
     post_entry = {
         "matcher": "",
-        "hooks": [{"type": "command", "command": str(post_path)}],
+        "hooks": [{"type": "command", "command": rel_post}],
     }
 
-    pre_commands = [
-        h.get("hooks", [{}])[0].get("command", "")
-        for h in settings["hooks"]["PreToolUse"]
+    # Idempotent: remove existing kibitzer entries before adding
+    settings["hooks"]["PreToolUse"] = [
+        m for m in settings["hooks"]["PreToolUse"]
+        if not any("kibitzer" in h.get("command", "") for h in m.get("hooks", []))
     ]
-    if str(pre_path) not in pre_commands:
-        settings["hooks"]["PreToolUse"].append(pre_entry)
+    settings["hooks"]["PreToolUse"].append(pre_entry)
 
-    post_commands = [
-        h.get("hooks", [{}])[0].get("command", "")
-        for h in settings["hooks"]["PostToolUse"]
+    settings["hooks"]["PostToolUse"] = [
+        m for m in settings["hooks"]["PostToolUse"]
+        if not any("kibitzer" in h.get("command", "") for h in m.get("hooks", []))
     ]
-    if str(post_path) not in post_commands:
-        settings["hooks"]["PostToolUse"].append(post_entry)
+    settings["hooks"]["PostToolUse"].append(post_entry)
 
     settings_path.write_text(json.dumps(settings, indent=2))
     click.echo(f"Updated {settings_path}")
