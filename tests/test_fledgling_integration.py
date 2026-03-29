@@ -249,7 +249,7 @@ class TestFledglingPatterns:
         mock_bash.return_value = []
 
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         matching = [(pid, msg) for pid, msg in patterns if pid == "fledgling_repeated_search"]
         assert len(matching) == 1
         assert "def handle_request" in matching[0][1]
@@ -265,7 +265,7 @@ class TestFledglingPatterns:
         ]
 
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         matching = [(pid, msg) for pid, msg in patterns if pid == "fledgling_replaceable_bash"]
         assert len(matching) == 1
         assert "FindDefinitions" in matching[0][1]
@@ -281,14 +281,14 @@ class TestFledglingPatterns:
         ]
 
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         matching = [pid for pid, _ in patterns if pid == "fledgling_replaceable_bash"]
         assert len(matching) == 0
 
     @patch("kibitzer.coach.fledgling.is_available", return_value=False)
     def test_no_patterns_when_unavailable(self, mock_avail, tmp_path):
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         assert len(patterns) == 0
 
     @patch("kibitzer.coach.fledgling.is_available", return_value=True)
@@ -300,7 +300,7 @@ class TestFledglingPatterns:
         mock_bash.return_value = None
 
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         assert len(patterns) == 0
 
     @patch("kibitzer.coach.fledgling.is_available", return_value=True)
@@ -313,7 +313,7 @@ class TestFledglingPatterns:
         mock_bash.return_value = []
 
         state = fresh_state()
-        patterns = _detect_fledgling_patterns(state, tmp_path)
+        patterns = _detect_fledgling_patterns(state, tmp_path, {"has_fledgling": True, "has_blq": False, "has_jetsam": False})
         msg = patterns[0][1]
         # Pattern should be truncated
         assert "..." in msg

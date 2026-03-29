@@ -233,41 +233,64 @@ class TestImprovedEditWithoutTestPattern:
 
 
 class TestSemanticToolUnderusePattern:
-    """Observation 4: agent ignores available semantic tools."""
+    """Observation 4: agent ignores available semantic tools.
 
-    def test_triggers_when_searching_without_semantic(self):
+    Requires fledgling to be available (via .mcp.json) to fire.
+    """
+
+    def _project_with_fledgling(self, tmp_path):
+        import json
+        mcp = {"mcpServers": {"fledgling": {"command": "duckdb"}}}
+        (tmp_path / ".mcp.json").write_text(json.dumps(mcp))
+        return tmp_path
+
+    def test_triggers_when_searching_without_semantic(self, tmp_path):
+        proj = self._project_with_fledgling(tmp_path)
         state = fresh_state()
         state["total_calls"] = 12
         state["tools_used_in_mode"] = {"Read": 6, "Grep": 2}
         state["semantic_tools_used"] = False
-        patterns = detect_patterns(state)
+        patterns = detect_patterns(state, project_dir=proj)
         matching = [(pid, msg) for pid, msg in patterns if pid == "semantic_underuse"]
         assert len(matching) == 1
-        assert "FindDefinitions" in matching[0][1] or "find_definitions" in matching[0][1].lower()
+        assert "FindDefinitions" in matching[0][1]
 
-    def test_does_not_trigger_when_semantic_used(self):
+    def test_does_not_trigger_when_semantic_used(self, tmp_path):
+        proj = self._project_with_fledgling(tmp_path)
         state = fresh_state()
         state["total_calls"] = 12
         state["tools_used_in_mode"] = {"Read": 6, "Grep": 2}
         state["semantic_tools_used"] = True
-        patterns = detect_patterns(state)
+        patterns = detect_patterns(state, project_dir=proj)
         matching = [pid for pid, _ in patterns if pid == "semantic_underuse"]
         assert len(matching) == 0
 
-    def test_does_not_trigger_with_few_calls(self):
+    def test_does_not_trigger_with_few_calls(self, tmp_path):
+        proj = self._project_with_fledgling(tmp_path)
         state = fresh_state()
         state["total_calls"] = 5
         state["tools_used_in_mode"] = {"Read": 3}
         state["semantic_tools_used"] = False
-        patterns = detect_patterns(state)
+        patterns = detect_patterns(state, project_dir=proj)
         matching = [pid for pid, _ in patterns if pid == "semantic_underuse"]
         assert len(matching) == 0
 
-    def test_does_not_trigger_without_search_activity(self):
+    def test_does_not_trigger_without_search_activity(self, tmp_path):
         """If agent isn't searching, no need to suggest semantic tools."""
+        proj = self._project_with_fledgling(tmp_path)
         state = fresh_state()
         state["total_calls"] = 15
         state["tools_used_in_mode"] = {"Edit": 10, "Bash": 5}
+        state["semantic_tools_used"] = False
+        patterns = detect_patterns(state, project_dir=proj)
+        matching = [pid for pid, _ in patterns if pid == "semantic_underuse"]
+        assert len(matching) == 0
+
+    def test_does_not_trigger_without_fledgling(self):
+        """Without fledgling, semantic_underuse should not fire."""
+        state = fresh_state()
+        state["total_calls"] = 15
+        state["tools_used_in_mode"] = {"Read": 8, "Grep": 3}
         state["semantic_tools_used"] = False
         patterns = detect_patterns(state)
         matching = [pid for pid, _ in patterns if pid == "semantic_underuse"]
@@ -486,25 +509,29 @@ class TestModeAwareness:
 
     # --- Semantic underuse fires in all modes ---
 
-    def test_semantic_underuse_fires_in_debug(self):
+    def test_semantic_underuse_fires_in_debug(self, tmp_path):
         """Even in debug mode, suggesting semantic tools is helpful."""
+        import json
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"fledgling": {"command": "duckdb"}}}))
         state = self._state_with(
             "debug",
             total_calls=15,
             tools_used_in_mode={"Read": 8, "Grep": 3},
             semantic_tools_used=False,
         )
-        patterns = detect_patterns(state)
+        patterns = detect_patterns(state, project_dir=tmp_path)
         assert any(pid == "semantic_underuse" for pid, _ in patterns)
 
-    def test_semantic_underuse_fires_in_review(self):
+    def test_semantic_underuse_fires_in_review(self, tmp_path):
+        import json
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"fledgling": {"command": "duckdb"}}}))
         state = self._state_with(
             "review",
             total_calls=15,
             tools_used_in_mode={"Read": 8, "Grep": 3},
             semantic_tools_used=False,
         )
-        patterns = detect_patterns(state)
+        patterns = detect_patterns(state, project_dir=tmp_path)
         assert any(pid == "semantic_underuse" for pid, _ in patterns)
 
     # --- Document mode ---
