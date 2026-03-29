@@ -62,60 +62,143 @@ class TestFledglingInitDetection:
         assert fledgling._find_init(tmp_path) is None
 
 
-class TestFledglingQuery:
-    @patch("kibitzer.coach.fledgling.is_available", return_value=False)
-    def test_returns_none_when_unavailable(self, mock_avail):
-        result = fledgling.query("SELECT 1")
+class TestFledglingQueryCLI:
+    """Test the CLI fallback path for queries."""
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value=None)
+    def test_returns_none_when_cli_unavailable(self, mock_which, mock_api):
+        result = fledgling._query_cli("SELECT 1")
         assert result is None
 
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
+    @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
     @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_returns_parsed_json(self, mock_run, mock_avail):
+    def test_returns_parsed_json(self, mock_run, mock_init, mock_which, mock_api):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout='[{"tool_name": "Edit", "count": 5}]',
         )
-        result = fledgling.query("SELECT tool_name, count FROM ...")
+        result = fledgling._query_cli("SELECT tool_name, count FROM ...")
         assert result == [{"tool_name": "Edit", "count": 5}]
 
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
+    @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
     @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_returns_none_on_failure(self, mock_run, mock_avail):
+    def test_returns_none_on_failure(self, mock_run, mock_init, mock_which, mock_api):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
-        result = fledgling.query("SELECT bad")
+        result = fledgling._query_cli("SELECT bad")
         assert result is None
 
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
+    @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
     @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_returns_none_on_timeout(self, mock_run, mock_avail):
+    def test_returns_none_on_timeout(self, mock_run, mock_init, mock_which, mock_api):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="fledgling", timeout=5)
-        result = fledgling.query("SELECT slow")
+        result = fledgling._query_cli("SELECT slow")
         assert result is None
 
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
+    @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
     @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_returns_empty_list_on_empty_output(self, mock_run, mock_avail):
+    def test_returns_empty_list_on_empty_output(self, mock_run, mock_init, mock_which, mock_api):
         mock_run.return_value = MagicMock(returncode=0, stdout="")
-        result = fledgling.query("SELECT nothing")
+        result = fledgling._query_cli("SELECT nothing")
         assert result == []
 
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
+    @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
     @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_returns_none_on_invalid_json(self, mock_run, mock_avail):
-        mock_run.return_value = MagicMock(returncode=0, stdout="not json")
-        result = fledgling.query("SELECT bad_json")
-        assert result is None
-
-    @patch("kibitzer.coach.fledgling.is_available", return_value=True)
-    @patch("kibitzer.coach.fledgling.subprocess.run")
-    def test_single_dict_wrapped_in_list(self, mock_run, mock_avail):
+    def test_single_dict_wrapped_in_list(self, mock_run, mock_init, mock_which, mock_api):
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout='{"tool_name": "Edit", "count": 1}',
         )
-        result = fledgling.query("SELECT one_row")
+        result = fledgling._query_cli("SELECT one_row")
         assert result == [{"tool_name": "Edit", "count": 1}]
+
+
+class TestFledglingQueryPythonAPI:
+    """Test the Python API path for queries."""
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=True)
+    @patch("kibitzer.coach.fledgling._get_connection")
+    def test_returns_records_from_python_api(self, mock_conn, mock_api):
+        # Mock the DataFrame with a MagicMock that has to_dict
+        mock_df = MagicMock()
+        mock_df.to_dict.return_value = [
+            {"tool_name": "Edit", "count": 5},
+            {"tool_name": "Read", "count": 3},
+        ]
+        mock_rel = MagicMock()
+        mock_rel.df.return_value = mock_df
+        mock_con = MagicMock()
+        mock_con.sql.return_value = mock_rel
+        mock_conn.return_value = mock_con
+
+        result = fledgling._query_python("SELECT tool_name, count FROM ...")
+        assert result == [
+            {"tool_name": "Edit", "count": 5},
+            {"tool_name": "Read", "count": 3},
+        ]
+        mock_df.to_dict.assert_called_once_with(orient="records")
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=True)
+    @patch("kibitzer.coach.fledgling._get_connection", return_value=None)
+    def test_returns_none_when_connection_fails(self, mock_conn, mock_api):
+        result = fledgling._query_python("SELECT 1")
+        assert result is None
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=True)
+    @patch("kibitzer.coach.fledgling._get_connection")
+    def test_returns_none_on_query_error(self, mock_conn, mock_api):
+        mock_con = MagicMock()
+        mock_con.sql.side_effect = RuntimeError("bad query")
+        mock_conn.return_value = mock_con
+
+        result = fledgling._query_python("SELECT bad")
+        assert result is None
+
+
+class TestFledglingQueryFallback:
+    """Test that query() tries Python API first, then falls back to CLI."""
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=True)
+    @patch("kibitzer.coach.fledgling._query_python")
+    @patch("kibitzer.coach.fledgling._query_cli")
+    def test_uses_python_api_when_available(self, mock_cli, mock_python, mock_api):
+        mock_python.return_value = [{"x": 1}]
+
+        result = fledgling.query("SELECT 1")
+        assert result == [{"x": 1}]
+        mock_python.assert_called_once()
+        mock_cli.assert_not_called()
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=True)
+    @patch("kibitzer.coach.fledgling._query_python", return_value=None)
+    @patch("kibitzer.coach.fledgling._query_cli")
+    def test_falls_back_to_cli_on_python_failure(self, mock_cli, mock_python, mock_api):
+        mock_cli.return_value = [{"x": 2}]
+
+        result = fledgling.query("SELECT 1")
+        assert result == [{"x": 2}]
+        mock_python.assert_called_once()
+        mock_cli.assert_called_once()
+
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
+    @patch("kibitzer.coach.fledgling._query_cli")
+    def test_skips_python_when_not_importable(self, mock_cli, mock_api):
+        mock_cli.return_value = [{"x": 3}]
+
+        result = fledgling.query("SELECT 1")
+        assert result == [{"x": 3}]
+        mock_cli.assert_called_once()
 
 
 # ===========================================================================

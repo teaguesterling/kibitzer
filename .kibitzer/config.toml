@@ -1,0 +1,54 @@
+[modes.free]
+writable = ["*"]
+strategy = ""
+
+[modes.create]
+writable = ["*"]
+strategy = "Scaffold structure before filling in details."
+
+[modes.implement]
+writable = ["src/", "lib/"]
+strategy = ""
+
+[modes.test_dev]
+writable = ["tests/", "test/", "spec/"]
+strategy = "Write tests for expected behavior, not current behavior."
+
+[modes.document]
+writable = ["docs/", "README.md", "CHANGELOG.md"]
+strategy = "Explain the why, not the what."
+
+[modes.debug]
+writable = []
+strategy = "Identify all failures before proposing fixes."
+
+[modes.review]
+writable = []
+strategy = "Read everything before forming an opinion."
+
+[controller]
+default_mode = "implement"
+max_consecutive_failures = 3
+max_turns_in_debug = 20
+auto_review_on_tests_passing = true
+
+[coach]
+frequency = 5
+enabled = true
+
+[coach.model_overrides]
+haiku = { frequency = 3 }
+sonnet = { frequency = 5 }
+opus = { frequency = 10 }
+
+[plugins.blq]
+mode = "observe"
+enabled = true
+
+[plugins.jetsam]
+mode = "observe"
+enabled = true
+
+[plugins.fledgling]
+mode = "observe"
+enabled = true

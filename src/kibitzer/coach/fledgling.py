@@ -1,4 +1,9 @@
-"""Query fledgling for coaching data. Gracefully returns None if unavailable."""
+"""Query fledgling for coaching data. Gracefully returns None if unavailable.
+
+Prefers fledgling's Python API (fledgling.connect()) when importable.
+Falls back to CLI subprocess calls if only the CLI is available.
+Returns None on any failure — the coach works from state.json alone.
+"""
 
 from __future__ import annotations
 
@@ -9,16 +14,54 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+# Cache the connection to avoid re-init on every query within a hook invocation
+_connection = None
+_connection_root: str | None = None
+
+
+def _get_connection(project_dir: Path | None = None):
+    """Get or create a fledgling Python API connection."""
+    global _connection, _connection_root
+
+    root = str(project_dir) if project_dir else str(Path.cwd())
+    if _connection is not None and _connection_root == root:
+        return _connection
+
+    try:
+        import fledgling
+        _connection = fledgling.connect(root=root)
+        _connection_root = root
+        return _connection
+    except Exception:
+        return None
+
+
+def _has_python_api() -> bool:
+    """Check if the fledgling Python package is importable."""
+    try:
+        import fledgling  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
 
 def is_available(project_dir: Path | None = None) -> bool:
-    """Check if fledgling is installed and initialized."""
+    """Check if fledgling is available (Python API or CLI)."""
+    if _has_python_api():
+        try:
+            con = _get_connection(project_dir)
+            return con is not None
+        except Exception:
+            pass
+
+    # Fall back to CLI check
     if shutil.which("fledgling") is None:
         return False
     return _find_init(project_dir) is not None
 
 
 def _find_init(project_dir: Path | None = None) -> Path | None:
-    """Find the fledgling init file."""
+    """Find the fledgling init file (for CLI fallback)."""
     if env_init := os.getenv("FLEDGLING_INIT"):
         p = Path(env_init)
         return p if p.exists() else None
@@ -40,8 +83,38 @@ def _find_init(project_dir: Path | None = None) -> Path | None:
 
 
 def query(sql: str, project_dir: Path | None = None, timeout: float = 5.0) -> list[dict[str, Any]] | None:
-    """Run a SQL query via fledgling CLI. Returns list of row dicts, or None on failure."""
-    if not is_available(project_dir):
+    """Run a SQL query. Prefers Python API, falls back to CLI.
+
+    Returns list of row dicts, or None on failure.
+    """
+    # Try Python API first
+    if _has_python_api():
+        result = _query_python(sql, project_dir)
+        if result is not None:
+            return result
+
+    # Fall back to CLI
+    return _query_cli(sql, project_dir, timeout)
+
+
+def _query_python(sql: str, project_dir: Path | None = None) -> list[dict[str, Any]] | None:
+    """Run a query via fledgling's Python API."""
+    try:
+        con = _get_connection(project_dir)
+        if con is None:
+            return None
+        rel = con.sql(sql)
+        df = rel.df()
+        return df.to_dict(orient="records")
+    except Exception:
+        return None
+
+
+def _query_cli(sql: str, project_dir: Path | None = None, timeout: float = 5.0) -> list[dict[str, Any]] | None:
+    """Run a query via fledgling CLI subprocess."""
+    if shutil.which("fledgling") is None:
+        return None
+    if _find_init(project_dir) is None:
         return None
 
     try:
@@ -62,7 +135,6 @@ def query(sql: str, project_dir: Path | None = None, timeout: float = 5.0) -> li
         parsed = json.loads(output)
         if isinstance(parsed, list):
             return parsed
-        # DuckDB json output may be a single object for single-row results
         if isinstance(parsed, dict):
             return [parsed]
         return None
