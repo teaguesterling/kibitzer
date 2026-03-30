@@ -2,7 +2,7 @@
 
 *The person watching your chess game who can't help offering opinions.*
 
-Kibitzer is a Claude Code extension that watches how agents use tools and suggests better alternatives. It coordinates three existing tools — [Fledgling](https://github.com/teague/source-sextant) (code intelligence), [blq](https://github.com/teague/lq) (build/test capture), and [jetsam](https://github.com/teague/jetsam) (git workflow) — through Claude Code's hook protocol.
+Kibitzer is a standalone Claude Code extension that watches how agents use tools and suggests better alternatives. It optionally coordinates with [Fledgling](https://github.com/teague/source-sextant) (code intelligence), [blq](https://github.com/teague/lq) (build/test capture), and [jetsam](https://github.com/teague/jetsam) (git workflow) — but none are required.
 
 Kibitzer is level 1: specified rules over structured data. No LLM in the decision loop. Every decision traces to `config.toml`.
 

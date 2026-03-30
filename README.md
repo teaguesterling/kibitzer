@@ -113,6 +113,11 @@ Override defaults in `.kibitzer/config.toml`:
 [modes.implement]
 writable = ["packages/core/src/", "packages/api/src/"]
 
+# Add custom modes
+[modes.deploy]
+writable = ["infra/", "deploy/"]
+strategy = "Verify before applying."
+
 # Graduate jetsam to suggest mode
 [plugins.jetsam]
 mode = "suggest"

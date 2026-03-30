@@ -4,42 +4,32 @@ Kibitzer enforces what the agent can write based on the current mode. The path g
 
 Bash writes are not guarded — that's [blq's sandbox enforcement](integration.md#blq) domain.
 
-## The 7 modes
+## The 5 modes
 
 ### `free`
 - **Writable:** everything (`["*"]`)
 - **Strategy:** none
 - **When to use:** Prototyping, exploration, or when the guardrails are getting in the way. The coach will suggest switching if you've been in free mode for a while with a lot of failures.
 
-### `create`
-- **Writable:** everything (`["*"]`)
-- **Strategy:** "Scaffold structure before filling in details."
-- **When to use:** Greenfield projects — creating new files and directories. Like `free` but with a strategy instruction nudging toward structure-first.
-
 ### `implement`
 - **Writable:** `src/`, `lib/`
 - **Strategy:** none
 - **When to use:** Normal development. Tests are protected (can't accidentally modify them to pass). Config files are protected. This is the default mode.
 
-### `test_dev`
+### `test`
 - **Writable:** `tests/`, `test/`, `spec/`
 - **Strategy:** "Write tests for expected behavior, not current behavior."
 - **When to use:** Writing or updating tests. Source code is protected — you can't change implementation to match broken tests.
 
-### `document`
+### `docs`
 - **Writable:** `docs/`, `README.md`, `CHANGELOG.md`
 - **Strategy:** "Explain the why, not the what."
 - **When to use:** Writing documentation. Source and tests are protected. The coach suppresses edit-without-test suggestions in this mode (docs don't need test runs).
 
-### `debug`
+### `explore`
 - **Writable:** nothing (read-only)
-- **Strategy:** "Identify all failures before proposing fixes."
-- **When to use:** Diagnosing a problem. All edits are blocked — the agent can only read, search, and run commands. Forces investigation before action. The mode controller auto-switches here after 3+ consecutive failures.
-
-### `review`
-- **Writable:** nothing (read-only)
-- **Strategy:** "Read everything before forming an opinion."
-- **When to use:** Code review. Like debug but with a different intent — understanding before judging.
+- **Strategy:** "Map the territory before making changes."
+- **When to use:** Diagnosing a problem or reviewing code. All edits are blocked — the agent can only read, search, and run commands. Forces investigation before action. The mode controller auto-switches here after 3+ consecutive failures.
 
 ## Path matching
 
@@ -50,7 +40,7 @@ Writable paths are prefix-matched. `"src/"` matches `src/foo/bar.py`. `"README.m
 The agent switches modes by calling the `ChangeToolMode` MCP tool:
 
 ```
-ChangeToolMode(mode="test_dev", reason="writing tests for the new feature")
+ChangeToolMode(mode="test", reason="writing tests for the new feature")
 ```
 
 The response tells the agent what's now writable:
@@ -58,7 +48,7 @@ The response tells the agent what's now writable:
 ```json
 {
   "previous_mode": "implement",
-  "new_mode": "test_dev",
+  "new_mode": "test",
   "writable": ["tests/", "test/", "spec/"],
   "strategy": "Write tests for expected behavior, not current behavior."
 }
@@ -72,12 +62,12 @@ The mode controller can switch modes automatically based on failure patterns:
 
 | Trigger | Transition | Condition |
 |---------|-----------|-----------|
-| 3+ consecutive failures | → `debug` | Current mode is writable (not debug/review) |
-| 20+ turns in debug | → `implement` | Extended diagnosis, time to act |
+| 3+ consecutive failures | → `explore` | Current mode is writable (not explore) |
+| 20+ turns in explore | → `implement` | Extended diagnosis, time to act |
 
-Auto-transitions have an **oscillation guard**: if the agent just left a mode (spent fewer than 5 turns there), it won't auto-switch back. After 6+ total mode switches, auto-transitions stop entirely — the coach suggests using `free` mode instead.
+Auto-transitions have an **oscillation guard**: if the agent has spent fewer than 5 turns in the current mode, it won't auto-switch. After 6+ total mode switches, auto-transitions stop entirely — the coach suggests using `free` mode instead.
 
-`free` and `create` modes never auto-transition. If you chose those modes, kibitzer respects that.
+`free` mode never auto-transitions. If you chose that mode, kibitzer respects that.
 
 ## Customizing modes
 
@@ -86,11 +76,11 @@ Override writable paths per-project in `.kibitzer/config.toml`:
 ```toml
 # Rust project: source is in src/, tests are inline
 [modes.implement]
-writable = ["src/", "Cargo.toml"]
+writable = ["src/", "Cargo.toml", "build.rs"]
 
-# Monorepo: multiple packages
-[modes.implement]
-writable = ["packages/core/src/", "packages/api/src/"]
+[modes.test]
+writable = ["src/", "tests/"]
+# src/ writable because Rust tests live in source files
 ```
 
 You can also define entirely new modes:
@@ -99,6 +89,10 @@ You can also define entirely new modes:
 [modes.deploy]
 writable = ["infra/", "deploy/", "k8s/"]
 strategy = "Verify before applying."
+
+[modes.review]
+writable = []
+strategy = "Read everything before forming an opinion."
 ```
 
 ## Coach behavior per mode
@@ -107,11 +101,11 @@ Not all coach patterns fire in all modes. Patterns that would be noise in the cu
 
 | Pattern | Active in | Suppressed in |
 |---------|-----------|---------------|
-| Repeated edit failure | writable modes | debug, review |
-| Sequential reads | writable modes | debug, review (reading is the job) |
-| Edit without test | writable code modes | debug, review, document |
+| Repeated edit failure | writable modes | explore |
+| Sequential reads | writable modes | explore (reading is the job) |
+| Edit without test | implement, test, free | explore, docs |
 | Semantic tool underuse | all modes | — |
-| Analysis loop | writable modes | debug, review (not editing is correct) |
+| Analysis loop | writable modes | explore (not editing is correct) |
 | High failure ratio | all modes | — |
 | Mode oscillation | all modes | — |
-| Debug mode edits | debug only | — |
+| Explore mode edits | explore only | — |

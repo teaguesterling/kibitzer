@@ -16,7 +16,7 @@ Claude Code
     │                                              ├── Mode controller
     │                                              └── Coach
     │
-    └── MCP server ──→ python -m kibitzer serve
+    └── MCP server ──→ kibitzer serve
         (agent calls explicitly)
             ├── ChangeToolMode
             └── GetFeedback

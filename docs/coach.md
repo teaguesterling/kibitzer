@@ -47,7 +47,7 @@ wrong indentation. Try Read(src/handler.py) first to see the exact current conte
 
 **Model dependency:** Critical for Haiku (generates bad old_strings frequently). Occasionally useful for Sonnet. Rare for Opus.
 
-**Active in:** writable modes (implement, test_dev, create, free). Suppressed in debug/review where edits shouldn't happen.
+**Active in:** writable modes (implement, test, free, docs). Suppressed in explore where edits shouldn't happen.
 
 ---
 
@@ -65,7 +65,7 @@ to verify your changes.
 
 **Why it matters:** Early testing catches cascading errors before they compound. The strategy instruction "understand before editing" addresses this partially, but some agents batch edits and only test at the end.
 
-**Active in:** writable code modes (implement, test_dev, create, free). Suppressed in debug/review (can't edit) and document (docs don't need tests).
+**Active in:** writable code modes (implement, test, free). Suppressed in explore (can't edit) and docs (docs don't need tests).
 
 ---
 
@@ -102,7 +102,7 @@ or CodeStructure to get an overview in one call.
 
 **Why it matters:** In Sonnet experiments, sequential reads were a major cost driver — the round-trip overhead is why config A ($1.35) cost more than config E ($0.98). Batch reads or semantic tools eliminate the overhead.
 
-**Active in:** writable modes. Suppressed in debug/review where sequential reading is expected behavior.
+**Active in:** writable modes. Suppressed in explore where sequential reading is expected behavior.
 
 ---
 
@@ -120,7 +120,7 @@ starting with the most confident fix — you can verify with tests and adjust.
 
 **Why it matters:** This is primarily an Opus pattern. The strategy instruction "understand before editing" can trigger it — Opus interprets "understand" as "analyze exhaustively." The coach compensates for a harmful instruction rather than removing the instruction (which helps Haiku and Sonnet).
 
-**Active in:** writable modes (implement, test_dev, create, free, document). Suppressed in debug/review where not editing is the correct behavior.
+**Active in:** writable modes (implement, test, free, docs). Suppressed in explore where not editing is the correct behavior.
 
 ---
 
@@ -150,17 +150,31 @@ starting with the most confident fix — you can verify with tests and adjust.
 
 ---
 
-### 8. Editing in debug mode
+### 8. Editing in explore mode
 
-**Detection:** Any Edit calls while in debug mode.
+**Detection:** Any Edit calls while in explore mode.
 
 **Suggestion:**
 ```
-[kibitzer] You're editing files in debug mode. Use ChangeToolMode to switch
+[kibitzer] You're editing files in explore mode. Use ChangeToolMode to switch
 to implement mode first.
 ```
 
-**Active in:** debug mode only.
+**Active in:** explore mode only.
+
+---
+
+### 9. Bash-heavy usage
+
+**Detection:** 6+ bash commands without using structured tools (Edit, Grep, Read).
+
+**Suggestion:**
+```
+[kibitzer] You've run 6 bash commands without using structured tools.
+Edit, Grep, and Read provide better context.
+```
+
+**Active in:** writable modes. Suppressed in explore.
 
 ---
 
@@ -170,7 +184,7 @@ When [Fledgling](https://github.com/teague/source-sextant) is available (detecte
 
 These patterns only fire if fledgling is installed. Without it, the coach works from state counters alone.
 
-### 9. Repeated search patterns
+### 10. Repeated search patterns
 
 **What happens:** The agent searches for the same pattern 3+ times in a session — `grep -rn 'def handle_request'` across different files, or reading the same file repeatedly.
 
@@ -186,7 +200,7 @@ FindDefinitions or CodeStructure can get an overview in one call.
 
 ---
 
-### 10. Replaceable bash commands
+### 11. Replaceable bash commands
 
 **What happens:** The agent runs bash commands that fledgling has identified as having structured alternatives — e.g., using `grep` when `FindDefinitions` would give AST-aware results.
 
@@ -223,13 +237,13 @@ The `semantic_underuse` pattern (pattern 3) doesn't fire at all if fledgling isn
 
 ---
 
-**Active in:** debug mode only.
-
 ## Deduplication
 
 Each pattern has a unique ID (`repeated_edit_failure`, `edit_without_test`, etc.). Once a suggestion fires, its ID is added to `state.json`'s `suggestions_given` list. The same pattern won't fire again in the same session.
 
 This means the coach gives each suggestion exactly once. If the agent ignores it, the coach doesn't nag. If the agent follows it (e.g., runs tests after the edit-without-test suggestion), the pattern naturally resolves.
+
+Note: `GetFeedback(suggestions=true)` returns current suggestions without marking them as given, so it won't suppress future hook-based coaching.
 
 ## How patterns connect to the ratchet
 

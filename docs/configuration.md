@@ -14,34 +14,26 @@ You only need to put overrides in the project-local file. Missing values fall ba
 writable = ["*"]
 strategy = ""
 
-[modes.create]
-writable = ["*"]
-strategy = "Scaffold structure before filling in details."
-
 [modes.implement]
 writable = ["src/", "lib/"]
 strategy = ""
 
-[modes.test_dev]
+[modes.test]
 writable = ["tests/", "test/", "spec/"]
 strategy = "Write tests for expected behavior, not current behavior."
 
-[modes.document]
+[modes.docs]
 writable = ["docs/", "README.md", "CHANGELOG.md"]
 strategy = "Explain the why, not the what."
 
-[modes.debug]
+[modes.explore]
 writable = []
-strategy = "Identify all failures before proposing fixes."
-
-[modes.review]
-writable = []
-strategy = "Read everything before forming an opinion."
+strategy = "Map the territory before making changes."
 
 [controller]
 default_mode = "implement"
 max_consecutive_failures = 3
-max_turns_in_debug = 20
+max_turns_in_explore = 20
 
 [coach]
 frequency = 5
@@ -78,12 +70,16 @@ Each mode defines what paths the agent can write to and an optional strategy ins
 
 **Writable paths** are prefix-matched: `"src/"` matches `src/foo/bar.py`. Exact filenames also work: `"README.md"` matches `README.md` but not `src/README.md`.
 
-**Custom modes:** You can define new modes beyond the 7 defaults:
+**Custom modes:** You can define new modes beyond the 5 defaults:
 
 ```toml
 [modes.deploy]
 writable = ["infra/", "deploy/"]
 strategy = "Verify before applying."
+
+[modes.review]
+writable = []
+strategy = "Read everything before forming an opinion."
 ```
 
 ### `[controller]`
@@ -93,8 +89,8 @@ Controls automatic mode transitions.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `default_mode` | string | `"implement"` | Mode on fresh state |
-| `max_consecutive_failures` | integer | `3` | Consecutive failures before auto-switch to debug |
-| `max_turns_in_debug` | integer | `20` | Turns in debug before auto-switch to implement |
+| `max_consecutive_failures` | integer | `3` | Consecutive failures before auto-switch to explore |
+| `max_turns_in_explore` | integer | `20` | Turns in explore before auto-switch to implement |
 
 ### `[coach]`
 
@@ -133,7 +129,7 @@ Configure interceptor plugins.
 [modes.implement]
 writable = ["src/", "Cargo.toml", "build.rs"]
 
-[modes.test_dev]
+[modes.test]
 writable = ["src/", "tests/"]
 # src/ writable because Rust tests live in source files
 ```
@@ -144,7 +140,7 @@ writable = ["src/", "tests/"]
 [modes.implement]
 writable = ["packages/core/src/", "packages/api/src/", "packages/shared/src/"]
 
-[modes.test_dev]
+[modes.test]
 writable = ["packages/core/tests/", "packages/api/tests/"]
 ```
 
