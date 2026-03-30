@@ -99,16 +99,22 @@ def _merge_settings(project_dir: Path, pre_path: Path, post_path: Path) -> None:
 
 
 def _write_mcp_json(project_dir: Path) -> None:
+    """Write kibitzer MCP server entry, using the python that ran init."""
+    import sys
+
     mcp_path = project_dir / ".mcp.json"
 
     if mcp_path.exists():
-        data = json.loads(mcp_path.read_text())
+        try:
+            data = json.loads(mcp_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
     else:
         data = {}
 
     data.setdefault("mcpServers", {})
     data["mcpServers"]["kibitzer"] = {
-        "command": "python3",
+        "command": sys.executable,
         "args": ["-m", "kibitzer", "serve"],
     }
 

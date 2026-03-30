@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "kibitzer": {
+      "command": "/mnt/aux-data/teague/Projects/kibitzer/.venv/bin/python",
+      "args": ["-m", "kibitzer", "serve"]
+    },
+    "blq": {
+      "command": "blq",
+      "args": ["mcp", "serve"]
+    },
+    "jetsam": {
+      "command": "jetsam",
+      "args": ["serve"]
+    }
+  }
+}
