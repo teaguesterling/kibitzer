@@ -1,4 +1,6 @@
-# Agent Kibitzer — Design Plan
+> **Superseded.** This plan describes an earlier Fledgling-embedded design. The current implementation uses standalone hooks + MCP. See `docs/superpowers/specs/2026-03-28-kibitzer-design.md` for the implemented design.
+
+# Agent Kibitzer — Design Plan (historical)
 
 ## Origin
 

@@ -38,7 +38,8 @@ def handle_pre_tool_use(
 
     # 1. Path guard for write tools
     if tool_name in _WRITE_TOOLS:
-        file_path = tool_input.get("file_path", "")
+        # Claude Code sends file_path for Edit/Write, notebook_path for NotebookEdit
+        file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
         if file_path:
             # Relativize absolute paths to project dir for prefix matching
             try:
@@ -64,10 +65,13 @@ def handle_pre_tool_use(
             if plugin_modes is None:
                 plugin_modes = {}
                 for name, pcfg in config.get("plugins", {}).items():
-                    plugin_modes[name] = pcfg.get("mode", "observe")
+                    if pcfg.get("enabled", True):
+                        plugin_modes[name] = pcfg.get("mode", "observe")
 
             plugins = build_registry()
             for plugin in plugins:
+                if plugin.name not in plugin_modes:
+                    continue  # plugin disabled in config
                 suggestion = plugin.check(command)
                 if suggestion is None:
                     continue

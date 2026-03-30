@@ -94,10 +94,16 @@ def update_counters(
 
 
 def should_transition(state: dict[str, Any], target: str) -> bool:
+    """Check if an auto-transition is safe (no oscillation, not too many switches)."""
     if state["mode_switches"] >= _MAX_MODE_SWITCHES:
         return False
+    # Don't switch back to a mode we just left if we barely spent time there
     if (state.get("previous_mode") == target
             and state.get("turns_in_previous_mode", 0) < _MIN_TURNS_BEFORE_RETURN):
+        return False
+    # After the first switch, don't switch out of current mode too quickly
+    if (state.get("mode_switches", 0) > 0
+            and state.get("turns_in_mode", 0) < _MIN_TURNS_BEFORE_RETURN):
         return False
     return True
 
@@ -110,11 +116,11 @@ def check_transitions(state: dict[str, Any], config: dict) -> Optional[Transitio
     max_failures = controller.get("max_consecutive_failures", 3)
     max_debug_turns = controller.get("max_turns_in_debug", 20)
 
-    if mode not in ("debug", "review") and state["consecutive_failures"] > max_failures:
+    if mode not in ("debug", "review") and state["consecutive_failures"] >= max_failures:
         if should_transition(state, "debug"):
             return Transition(target="debug", reason=f"Too many consecutive failures ({state['consecutive_failures']})")
 
-    if mode == "debug" and state["turns_in_mode"] > max_debug_turns:
+    if mode == "debug" and state["turns_in_mode"] >= max_debug_turns:
         if should_transition(state, "implement"):
             return Transition(target="implement", reason=f"Extended diagnosis ({state['turns_in_mode']} turns) — time to try fixing")
 

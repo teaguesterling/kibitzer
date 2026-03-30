@@ -42,7 +42,6 @@ strategy = "Read everything before forming an opinion."
 default_mode = "implement"
 max_consecutive_failures = 3
 max_turns_in_debug = 20
-auto_review_on_tests_passing = true
 
 [coach]
 frequency = 5
@@ -96,7 +95,6 @@ Controls automatic mode transitions.
 | `default_mode` | string | `"implement"` | Mode on fresh state |
 | `max_consecutive_failures` | integer | `3` | Consecutive failures before auto-switch to debug |
 | `max_turns_in_debug` | integer | `20` | Turns in debug before auto-switch to implement |
-| `auto_review_on_tests_passing` | boolean | `true` | Switch to review when tests pass (not yet implemented) |
 
 ### `[coach]`
 

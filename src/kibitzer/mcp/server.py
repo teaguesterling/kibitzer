@@ -78,8 +78,8 @@ def get_feedback(
         }
 
     if suggestions:
-        result["suggestions"] = generate_suggestions(state, project_dir=project_dir)
-        save_state(state, state_dir)
+        # mark_given=False: MCP queries shouldn't consume the hook coach's dedup budget
+        result["suggestions"] = generate_suggestions(state, project_dir=project_dir, mark_given=False)
 
     if intercepts:
         result["intercepts"] = _read_intercept_log(project_dir)

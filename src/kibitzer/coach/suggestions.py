@@ -24,11 +24,16 @@ def should_fire(state: dict[str, Any], config: dict) -> bool:
 def generate_suggestions(
     state: dict[str, Any],
     project_dir: Path | None = None,
+    mark_given: bool = True,
 ) -> list[str]:
     """Generate new suggestions, filtering out already-given ones.
 
-    Mutates state["suggestions_given"] to track what's been suggested.
-    If project_dir is provided, fledgling queries enrich detection.
+    Args:
+        state: Current state dict.
+        project_dir: Project root for fledgling queries.
+        mark_given: If True, marks suggestions as given in state (for dedup).
+            Set False when called from MCP GetFeedback to avoid consuming
+            the hook coach's dedup budget.
     """
     already_given = set(state.get("suggestions_given", []))
     patterns = detect_patterns(state, project_dir=project_dir)
@@ -37,6 +42,7 @@ def generate_suggestions(
     for pattern_id, message in patterns:
         if pattern_id not in already_given:
             new_suggestions.append(message)
-            state.setdefault("suggestions_given", []).append(pattern_id)
+            if mark_given:
+                state.setdefault("suggestions_given", []).append(pattern_id)
 
     return new_suggestions

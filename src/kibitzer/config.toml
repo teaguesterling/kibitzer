@@ -30,7 +30,6 @@ strategy = "Read everything before forming an opinion."
 default_mode = "implement"
 max_consecutive_failures = 3
 max_turns_in_debug = 20
-auto_review_on_tests_passing = true
 
 [coach]
 frequency = 5

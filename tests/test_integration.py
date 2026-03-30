@@ -81,8 +81,8 @@ class TestFailureDrivenModeSwitch:
         assert state["previous_mode"] == "implement"
 
     def test_success_resets_streak(self, project):
-        """3 failures then a success should not trigger debug."""
-        for i in range(3):
+        """2 failures then a success should not trigger debug (threshold is 3)."""
+        for i in range(2):
             handle_post_tool_use(
                 {
                     "tool_name": "Bash",
@@ -91,12 +91,12 @@ class TestFailureDrivenModeSwitch:
                 },
                 project_dir=project,
             )
-        # One success
+        # One success resets the streak
         handle_post_tool_use(
             {"tool_name": "Edit", "tool_input": {}, "tool_result": "ok"},
             project_dir=project,
         )
-        # One more failure
+        # One more failure — streak is back to 1, not enough
         handle_post_tool_use(
             {
                 "tool_name": "Bash",

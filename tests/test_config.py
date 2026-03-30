@@ -49,7 +49,6 @@ def test_controller_config():
     config = load_config(project_dir=Path("/nonexistent"))
     assert config["controller"]["max_consecutive_failures"] == 3
     assert config["controller"]["max_turns_in_debug"] == 20
-    assert config["controller"]["auto_review_on_tests_passing"] is True
 
 
 def test_coach_config_with_model_overrides():

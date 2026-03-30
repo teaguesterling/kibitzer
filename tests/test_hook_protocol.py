@@ -607,8 +607,9 @@ class TestPostToolUseModeTransitions:
         assert state["previous_mode"] == "implement"
         assert state["mode_switches"] == 1
 
-    def test_three_failures_then_success_stays(self, project):
-        for _ in range(3):
+    def test_two_failures_then_success_stays(self, project):
+        """2 failures then success should NOT trigger debug (threshold is 3)."""
+        for _ in range(2):
             handle_post_tool_use(
                 _post_hook("Bash", {"command": "make"}, {"exitCode": 1, "stdout": "", "stderr": "err"}),
                 project_dir=project,
