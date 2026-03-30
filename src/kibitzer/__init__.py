@@ -1,3 +1,3 @@
 """Kibitzer — watches agent tool calls and suggests structured alternatives."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
