@@ -74,7 +74,10 @@ def handle_post_tool_use(
 
 
 def main() -> None:
-    hook_input = json.loads(sys.stdin.read())
+    try:
+        hook_input = json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, OSError):
+        return  # bad input — exit silently
     result = handle_post_tool_use(hook_input)
     if result is not None:
         print(json.dumps(result))
