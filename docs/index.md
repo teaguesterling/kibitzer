@@ -22,6 +22,12 @@ cd your-project/
 kibitzer init --hooks --mcp
 ```
 
+For richer coaching with fledgling conversation analytics:
+
+```bash
+pip install kibitzer[fledgling]
+```
+
 This creates:
 - `.kibitzer/config.toml` — project configuration (edit to customize)
 - `.kibitzer/state.json` — runtime state (don't edit)

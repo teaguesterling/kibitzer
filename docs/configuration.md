@@ -170,6 +170,29 @@ mode = "suggest"
 enabled = false
 ```
 
+## Optional dependencies
+
+Kibitzer works standalone but benefits from optional integrations:
+
+```bash
+pip install kibitzer              # core only
+pip install kibitzer[fledgling]   # + fledgling Python API for richer coaching
+```
+
+The coach discovers available tools by reading `.mcp.json` in the project root. If fledgling, blq, or jetsam are registered as MCP servers, the coach references their specific tools in suggestions. Without `.mcp.json`, it falls back to checking CLI availability via `which`.
+
+## Resilience
+
+Both `state.json` and project `config.toml` are loaded defensively:
+
+- **Corrupt state.json** (empty, invalid JSON, non-dict) → falls back to fresh state
+- **Corrupt config.toml** (invalid TOML) → falls back to package defaults
+- **Missing `.kibitzer/` directory** → uses defaults, PostToolUse creates it on first call
+- **Invalid hook input** (bad JSON on stdin) → hooks exit silently (exit 0, no output)
+- **Fledgling query failure** (timeout, error) → coach uses state-only patterns
+
+Writes to `state.json` are atomic (temp file + rename) so a crash mid-write won't corrupt state.
+
 ## State file
 
 `.kibitzer/state.json` is runtime state — don't edit it manually. It tracks:

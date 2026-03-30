@@ -9,6 +9,8 @@ Kibitzer coordinates three existing tools and integrates with the superpowers pl
 | Path guard | nothing — just config.toml and state.json |
 | Mode controller | nothing |
 | Coach (basic patterns) | nothing |
+| Coach (tool-aware suggestions) | `.mcp.json` in project root |
+| Coach (fledgling queries) | fledgling Python package or CLI |
 | MCP tools | nothing |
 | BlqInterceptor | blq on PATH |
 | JetsamInterceptor | jetsam on PATH |
@@ -48,16 +50,33 @@ Kibitzer coordinates three existing tools and integrates with the superpowers pl
 [Fledgling](https://github.com/teague/source-sextant) provides read-only code intelligence via DuckDB — AST queries, definition lookup, caller tracing, conversation analytics.
 
 **What kibitzer uses from fledgling:**
-- `fledgling` binary on PATH (for interceptor availability check)
+- `fledgling` binary on PATH or Python package importable (for interceptor availability check)
 - Semantic tool names in counter tracking (`FindDefinitions`, `CodeStructure`, etc.)
+- **Conversation analytics queries** for richer coaching:
+  - `tool_calls()` — detect repeated search patterns (same grep 3+ times)
+  - `bash_commands()` — find bash commands with structured alternatives (`replaceable_by` field)
+
+**How queries work:**
+
+Kibitzer prefers fledgling's Python API when importable (`fledgling.connect()`), falling back to CLI subprocess calls (`fledgling -f json query "SQL"`). Install with `pip install kibitzer[fledgling]` for the Python API path.
+
+```python
+# Python API (preferred — in-process, fast)
+import fledgling
+con = fledgling.connect()
+rows = con.sql("SELECT * FROM tool_calls() WHERE ...").df().to_dict(orient="records")
+
+# CLI fallback (subprocess, slower but always works if CLI installed)
+fledgling -f json query "SELECT * FROM tool_calls() WHERE ..."
+```
+
+All queries have a 5-second timeout. If fledgling is unavailable or a query fails, the coach falls back to state-only patterns — no degradation of existing behavior.
 
 **What kibitzer does NOT do:**
-- Does not query fledgling's database directly (the coach works from state.json alone)
 - Does not manage fledgling kits (that's the quartermaster's future job)
+- Does not write to fledgling's database (read-only, level 0)
 
-**Future:** The coach could run fledgling queries for richer pattern detection:
-- `ChatToolUsage` to detect repeated searches for the same pattern
-- Kit effectiveness tracking (which tools were used vs. available)
+**Future:** Kit effectiveness tracking (which tools were used vs. available in the current kit).
 
 ## Superpowers
 

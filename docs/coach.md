@@ -162,6 +162,69 @@ to implement mode first.
 
 **Active in:** debug mode only.
 
+---
+
+## Fledgling-powered patterns
+
+When [Fledgling](https://github.com/teague/source-sextant) is available (detected via `.mcp.json` or CLI), the coach queries conversation analytics for patterns that `state.json` alone can't detect.
+
+These patterns only fire if fledgling is installed. Without it, the coach works from state counters alone.
+
+### 9. Repeated search patterns
+
+**What happens:** The agent searches for the same pattern 3+ times in a session — `grep -rn 'def handle_request'` across different files, or reading the same file repeatedly.
+
+**Detection:** Fledgling query on `tool_calls()` grouped by search pattern, filtered to current session.
+
+**Suggestion:**
+```
+[kibitzer] You've searched for 'def handle_request' 4 times via Grep.
+FindDefinitions or CodeStructure can get an overview in one call.
+```
+
+**Active in:** all modes (when fledgling is available).
+
+---
+
+### 10. Replaceable bash commands
+
+**What happens:** The agent runs bash commands that fledgling has identified as having structured alternatives — e.g., using `grep` when `FindDefinitions` would give AST-aware results.
+
+**Detection:** Fledgling query on `bash_commands()` where `replaceable_by` is not null, grouped and counted.
+
+**Suggestion:**
+```
+[kibitzer] You've run 'grep' 3 times via Bash. 'FindDefinitions' provides
+structured output for the same operation.
+```
+
+**Only fires when count >= 2** — a single use may be intentional.
+
+**Active in:** all modes (when fledgling is available).
+
+---
+
+## Tool-aware suggestions
+
+Suggestions reference only tools the agent actually has access to. The coach reads `.mcp.json` at the project root to discover registered MCP servers, and falls back to CLI availability checks.
+
+| If available | Suggestions mention |
+|---|---|
+| Fledgling | FindDefinitions, CodeStructure |
+| blq | `blq run test`, `blq errors` |
+| jetsam | `jetsam save`, `jetsam sync` |
+
+If a tool isn't available, the coach gives generic advice instead:
+
+- With fledgling: "FindDefinitions or CodeStructure can get an overview in one call."
+- Without fledgling: "Consider batching reads or searching for specific patterns with Grep."
+
+The `semantic_underuse` pattern (pattern 3) doesn't fire at all if fledgling isn't available — there's no point suggesting a tool the agent can't use.
+
+---
+
+**Active in:** debug mode only.
+
 ## Deduplication
 
 Each pattern has a unique ID (`repeated_edit_failure`, `edit_without_test`, etc.). Once a suggestion fires, its ID is added to `state.json`'s `suggestions_given` list. The same pattern won't fire again in the same session.

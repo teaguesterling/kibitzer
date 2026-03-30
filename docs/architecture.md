@@ -93,9 +93,11 @@ stdin JSON
     │   └── Apply transition if triggered (reset mode-level counters)
     │
     ├── 3. Coach (every N calls)
-    │   ├── Detect patterns from state
-    │   ├── Filter out already-given suggestions
-    │   └── Output new suggestions as additionalContext
+    │   ├── Discover available tools from .mcp.json
+    │   ├── Detect patterns from state (mode-aware)
+    │   ├── If fledgling available: query conversation analytics for richer patterns
+    │   ├── Filter out already-given suggestions (dedup)
+    │   └── Output new suggestions as additionalContext (referencing only available tools)
     │
     └── Save state → .kibitzer/state.json
 ```
@@ -126,7 +128,9 @@ src/kibitzer/
 │   └── mode_controller.py update_counters(), check_transitions(), apply_transition()
 ├── coach/
 │   ├── observer.py        detect_patterns(state) — mode-aware pattern detection
-│   └── suggestions.py     should_fire(), generate_suggestions() — frequency + dedup
+│   ├── suggestions.py     should_fire(), generate_suggestions() — frequency + dedup
+│   ├── fledgling.py       Query fledgling for conversation analytics (Python API + CLI fallback)
+│   └── tools.py           Discover available tools from .mcp.json for tailored suggestions
 ├── hooks/
 │   ├── pre_tool_use.py    PreToolUse entry: path guard → interceptors → output
 │   ├── post_tool_use.py   PostToolUse entry: counters → controller → coach → output
