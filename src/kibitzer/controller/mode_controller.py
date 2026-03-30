@@ -92,6 +92,20 @@ def update_counters(
     elif tool_name in _STRUCTURED_TOOLS:
         state["bash_without_structured"] = 0
 
+    # Test overfit: track edits to test files
+    _TEST_PREFIXES = ("tests/", "test/", "spec/")
+    if tool_name in _EDIT_TOOLS:
+        file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+        if file_path and any(file_path.startswith(p) for p in _TEST_PREFIXES):
+            edits = state.get("test_file_edits", {})
+            edits[file_path] = edits.get(file_path, 0) + 1
+            state["test_file_edits"] = edits
+            if state.get("first_edit_type") is None:
+                state["first_edit_type"] = "test"
+        elif file_path:
+            if state.get("first_edit_type") is None:
+                state["first_edit_type"] = "source"
+
 
 def should_transition(state: dict[str, Any], target: str) -> bool:
     """Check if an auto-transition is safe (no oscillation, not too many switches)."""

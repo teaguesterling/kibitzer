@@ -35,12 +35,10 @@ Each mode defines which paths the agent can write to. The path guard checks ever
 Mode        Writable            Use case
 ─────────── ─────────────────── ───────────────────────────
 free        everything          prototyping, no guardrails
-create      everything          greenfield, scaffold-first
 implement   src/, lib/          normal dev — tests protected
-test_dev    tests/, test/       writing tests — source protected
-document    docs/, README.md    documentation only
-debug       nothing             read-only investigation
-review      nothing             read-only code review
+test        tests/, test/       writing tests — source protected
+docs        docs/, README.md    documentation only
+explore     nothing             read-only investigation
 ```
 
 When a write is denied, the agent sees why and how to fix it:
@@ -78,18 +76,23 @@ The coach fires every N tool calls and detects patterns from ~250 experimental r
 - **Semantic tool underuse** — "FindDefinitions shows all functions in one call." (only fires if fledgling is available)
 - **Mode oscillation** — "Frequent mode switches. Consider using free mode."
 
+**TDD patterns:**
+
+- **Test overfit** — "test_auth.py has been edited 4 times. Stabilize test expectations before adjusting further."
+- **Implement before test** — "You edited source before writing tests. Consider starting with a failing test."
+
 **Fledgling-powered patterns (when fledgling is installed):**
 
 - **Repeated search patterns** — "You've searched for 'def handle_request' 4 times via Grep."
 - **Replaceable bash commands** — "You've run 'grep' 3 times. FindDefinitions provides structured output."
 
-All patterns are mode-aware: the analysis loop doesn't fire in debug mode (not editing is correct there), edit-without-test doesn't fire in document mode (docs don't need tests).
+All patterns are mode-aware: the analysis loop doesn't fire in explore mode (not editing is correct there), edit-without-test doesn't fire in docs mode (docs don't need tests).
 
 ### Auto-transitions
 
 The mode controller watches for failure patterns:
-- 3+ consecutive failures → auto-switch to `debug`
-- 20+ turns in debug → auto-switch back to `implement`
+- 3+ consecutive failures → auto-switch to `explore`
+- 20+ turns in explore → auto-switch back to `implement`
 
 An oscillation guard prevents rapid switching: if the agent just left a mode (< 5 turns), it won't auto-switch back. After 6+ total switches, auto-transitions stop.
 

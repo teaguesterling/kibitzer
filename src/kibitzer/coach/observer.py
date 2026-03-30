@@ -22,9 +22,10 @@ _SEMANTIC_MIN_CALLS = 10
 _SEMANTIC_MIN_SEARCHES = 5
 _ANALYSIS_LOOP_THRESHOLD = 15
 _BASH_HEAVY_THRESHOLD = 5
+_TEST_OVERFIT_THRESHOLD = 3
 
 # Mode sets for pattern applicability
-_WRITABLE_MODES = {"implement", "test", "free"}
+_WRITABLE_MODES = {"implement", "test", "free", "docs"}
 _READONLY_MODES = {"explore"}
 
 
@@ -131,12 +132,33 @@ def detect_patterns(
             "Frequent mode switches. Consider using free mode for this task.",
         ))
 
-    # Mode mismatch: editing in debug mode
+    # Mode mismatch: editing in explore mode
     if mode == "explore" and tools.get("Edit", 0) > 0:
         patterns.append((
             "explore_mode_edits",
             "You're editing files in explore mode. "
             "Use ChangeToolMode to switch to implement mode first.",
+        ))
+
+    # Test overfit: test file edited too many times
+    test_edits = state.get("test_file_edits", {})
+    for test_file, count in test_edits.items():
+        if count >= _TEST_OVERFIT_THRESHOLD:
+            short_name = test_file.split("/")[-1] if "/" in test_file else test_file
+            patterns.append((
+                "test_overfit",
+                f"{short_name} has been edited {count} times this session. "
+                "Consider stabilizing test expectations before adjusting further.",
+            ))
+            break  # one suggestion is enough
+
+    # Implement before test: source edited before any test
+    if (state.get("first_edit_type") == "source"
+            and state.get("total_calls", 0) > _SEMANTIC_MIN_CALLS):
+        patterns.append((
+            "implement_before_test",
+            "You edited source before writing tests. "
+            "Consider starting with a failing test next time.",
         ))
 
     # --- Fledgling-enriched patterns ---
