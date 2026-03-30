@@ -174,14 +174,41 @@ The path guard behavior changes fundamentally — from deny-only to auto-transit
 - Fledgling integration: unchanged
 - Hook protocol: unchanged (still PreToolUse/PostToolUse)
 
+### v0.1 bugs to fix (from code review)
+
+These should be fixed before or alongside the v0.2 feature work.
+
+**Critical:**
+
+1. **NotebookEdit path guard bypass.** The guard reads `tool_input.get("file_path")` but Claude Code sends `notebook_path` for NotebookEdit. All notebook writes are silently allowed regardless of mode. Fix: check both `file_path` and `notebook_path` fields.
+
+2. **Plugin `enabled` flag is dead code.** Config supports `enabled = false` per plugin, but `pre_tool_use.py` only reads `mode`, never checks `enabled`. Disabling a plugin in config has no effect. Fix: check `enabled` before running interceptor.
+
+**Important:**
+
+3. **Consecutive failures off-by-one.** `mode_controller.py` uses `> max_failures` instead of `>= max_failures`. With default of 3, auto-debug triggers at 4 failures, not 3 as documented. Fix: change to `>=` and update tests.
+
+4. **Oscillation guard checks wrong variable.** Checks `turns_in_previous_mode` (how long agent was in old mode before leaving) instead of checking whether the agent has been in the *current* mode long enough before switching back. Can fail to prevent rapid oscillation. Fix: rethink the oscillation guard logic — track when we entered the current mode and how long we've been here.
+
+5. **GetFeedback consumes suggestion dedup budget.** Calling `GetFeedback(suggestions=true)` marks suggestions as "given" in state, preventing the hook-based coach from ever firing those same suggestions. An early GetFeedback call silently suppresses future coaching. Fix: separate "shown via MCP" from "shown via hook" tracking, or don't mark as given when called via MCP.
+
+6. **`auto_review_on_tests_passing` not implemented.** Config key exists, spec describes it, no code implements it. Fix: either implement or remove from config/docs.
+
+**Docs:**
+
+7. **Intercept log field names inconsistent with spec examples.** Code uses `bash_command`/`suggested_tool`, some spec references use `bash`/`alternative`. Fix: align docs to match actual output.
+
+8. **Stale plan files.** `docs/plans/agent-kibitzer.md` and `docs/plans/user-kibitzer.md` describe a superseded Fledgling-embedded design. Fix: archive or add "superseded" note.
+
 ### Implementation order
 
-1. Rename modes (breaking change, update all tests)
-2. Add `test_overfit` and `implement_before_test` coach patterns
-3. Add auto-transition logic to path guard
-4. Add trust level / strictness ratchet
-5. Add context injection on transitions (jetsam/blq summaries)
-6. Update docs
+1. Fix v0.1 bugs (items 1-6 above)
+2. Rename modes (breaking change, update all tests)
+3. Add `test_overfit` and `implement_before_test` coach patterns
+4. Add auto-transition logic to path guard
+5. Add trust level / strictness ratchet
+6. Add context injection on transitions (jetsam/blq summaries)
+7. Update docs (fix items 7-8, update for v0.2 features)
 
 ### Open questions
 
