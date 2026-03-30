@@ -1,4 +1,4 @@
-> **Superseded.** This plan describes an earlier Fledgling-embedded design. The current implementation uses standalone hooks + MCP. See `docs/superpowers/specs/2026-03-28-kibitzer-design.md` for the implemented design.
+> **Superseded.** This plan describes an earlier Fledgling-embedded design. The current implementation uses standalone hooks + MCP. See [architecture.md](../architecture.md) for the current design.
 
 # User Kibitzer — Design Plan (historical)
 

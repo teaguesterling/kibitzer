@@ -12,7 +12,7 @@ def test_load_default_config():
 
 def test_load_default_has_all_modes():
     config = load_config(project_dir=Path("/nonexistent"))
-    expected_modes = {"free", "implement", "test", "docs", "explore"}
+    expected_modes = {"free", "implement", "test", "docs", "explore", "review"}
     assert set(config["modes"].keys()) == expected_modes
 
 

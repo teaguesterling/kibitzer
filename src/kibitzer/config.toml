@@ -18,6 +18,10 @@ strategy = "Explain the why, not the what."
 writable = []
 strategy = "Map the territory before making changes."
 
+[modes.review]
+writable = []
+strategy = "Read everything, then verify with tests."
+
 [controller]
 default_mode = "implement"
 max_consecutive_failures = 3

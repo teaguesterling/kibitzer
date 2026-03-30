@@ -130,7 +130,7 @@ def check_transitions(state: dict[str, Any], config: dict) -> Optional[Transitio
     max_failures = controller.get("max_consecutive_failures", 3)
     max_explore_turns = controller.get("max_turns_in_explore", 20)
 
-    if mode != "explore" and state["consecutive_failures"] >= max_failures:
+    if mode not in ("explore", "review") and state["consecutive_failures"] >= max_failures:
         if should_transition(state, "explore"):
             return Transition(target="explore", reason=f"Too many consecutive failures ({state['consecutive_failures']})")
 

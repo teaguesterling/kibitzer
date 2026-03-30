@@ -26,7 +26,8 @@ _TEST_OVERFIT_THRESHOLD = 3
 
 # Mode sets for pattern applicability
 _WRITABLE_MODES = {"implement", "test", "free", "docs"}
-_READONLY_MODES = {"explore"}
+_READONLY_MODES = {"explore", "review"}
+_REVIEW_SUGGEST_READS_THRESHOLD = 5
 
 
 def detect_patterns(
@@ -132,13 +133,24 @@ def detect_patterns(
             "Frequent mode switches. Consider using free mode for this task.",
         ))
 
-    # Mode mismatch: editing in explore mode
-    if mode == "explore" and tools.get("Edit", 0) > 0:
+    # Mode mismatch: editing in read-only mode
+    if mode in _READONLY_MODES and tools.get("Edit", 0) > 0:
         patterns.append((
-            "explore_mode_edits",
-            "You're editing files in explore mode. "
+            "readonly_mode_edits",
+            f"You're editing files in {mode} mode. "
             "Use ChangeToolMode to switch to implement mode first.",
         ))
+
+    # Review mode: suggest running tests after reading
+    if mode == "review":
+        read_count = tools.get("Read", 0) + tools.get("Grep", 0) + tools.get("Glob", 0)
+        bash_count = tools.get("Bash", 0)
+        if read_count >= _REVIEW_SUGGEST_READS_THRESHOLD and bash_count == 0:
+            hint = _test_tool_hint(available)
+            patterns.append((
+                "review_suggest_tests",
+                f"You've read {read_count} files. Consider running tests to verify. {hint}",
+            ))
 
     # Test overfit: test file edited too many times
     test_edits = state.get("test_file_edits", {})

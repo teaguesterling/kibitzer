@@ -112,7 +112,7 @@ def create_mcp_server():
         instructions=(
             "Kibitzer watches your tool calls and suggests structured alternatives. "
             "Use ChangeToolMode to switch between modes (free, implement, test, "
-            "docs, explore). Use GetFeedback to check status, "
+            "docs, explore, review). Use GetFeedback to check status, "
             "get coaching suggestions, and see intercepted patterns."
         ),
     )
@@ -122,7 +122,7 @@ def create_mcp_server():
         """Switch kibitzer mode to change which file paths are writable.
 
         Args:
-            mode: Target mode (free, implement, test, docs, explore)
+            mode: Target mode (free, implement, test, docs, explore, review)
             reason: Optional reason for the switch
         """
         result = change_tool_mode(mode, reason=reason or None)
