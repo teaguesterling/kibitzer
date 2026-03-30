@@ -125,7 +125,7 @@ class TestPreToolUseStdio:
         assert stdout.strip() == ""
 
     def test_debug_mode_denies_all_writes(self, project_in_mode):
-        proj = project_in_mode("debug")
+        proj = project_in_mode("explore")
         hook_input = {
             "tool_name": "Edit",
             "tool_input": {"file_path": "src/main.py", "old_string": "a", "new_string": "b"},
@@ -151,7 +151,7 @@ class TestPreToolUseStdio:
 
     def test_read_tool_always_silent(self, project_in_mode):
         """Read should produce no output in any mode."""
-        for mode in ["debug", "review", "implement", "test_dev", "document"]:
+        for mode in ["explore", "implement", "test", "docs", "free"]:
             proj = project_in_mode(mode)
             hook_input = {"tool_name": "Read", "tool_input": {"file_path": "secret.py"}}
             code, stdout, _ = _run_hook(
@@ -250,10 +250,10 @@ class TestPostToolUseStdio:
 
         output = json.loads(stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        assert "[kibitzer] Mode switched to debug" in ctx
+        assert "[kibitzer] Mode switched to explore" in ctx
 
         state = load_state(proj / ".kibitzer")
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"
 
     def test_coach_output_on_frequency(self, project_in_mode):
         """Coach should fire at frequency and produce output."""
@@ -580,4 +580,4 @@ max_consecutive_failures = 1
             )
 
         state = load_state(state_dir)
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"

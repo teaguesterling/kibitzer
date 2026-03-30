@@ -2,34 +2,26 @@
 writable = ["*"]
 strategy = ""
 
-[modes.create]
-writable = ["*"]
-strategy = "Scaffold structure before filling in details."
-
 [modes.implement]
 writable = ["src/", "lib/"]
 strategy = ""
 
-[modes.test_dev]
+[modes.test]
 writable = ["tests/", "test/", "spec/"]
 strategy = "Write tests for expected behavior, not current behavior."
 
-[modes.document]
+[modes.docs]
 writable = ["docs/", "README.md", "CHANGELOG.md"]
 strategy = "Explain the why, not the what."
 
-[modes.debug]
+[modes.explore]
 writable = []
-strategy = "Identify all failures before proposing fixes."
-
-[modes.review]
-writable = []
-strategy = "Read everything before forming an opinion."
+strategy = "Map the territory before making changes."
 
 [controller]
 default_mode = "implement"
 max_consecutive_failures = 3
-max_turns_in_debug = 20
+max_turns_in_explore = 20
 
 [coach]
 frequency = 5

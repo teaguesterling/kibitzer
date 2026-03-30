@@ -20,12 +20,12 @@ def test_fresh_state_has_defaults():
 
 def test_save_and_load_roundtrip(state_dir):
     state = fresh_state()
-    state["mode"] = "debug"
+    state["mode"] = "explore"
     state["failure_count"] = 3
     save_state(state, state_dir)
 
     loaded = load_state(state_dir)
-    assert loaded["mode"] == "debug"
+    assert loaded["mode"] == "explore"
     assert loaded["failure_count"] == 3
 
 
@@ -88,9 +88,9 @@ def test_load_json_null_returns_fresh(state_dir):
 
 def test_load_partial_state_fills_defaults(state_dir):
     """State with only some fields should get defaults for the rest."""
-    (state_dir / "state.json").write_text('{"mode": "debug", "total_calls": 5}')
+    (state_dir / "state.json").write_text('{"mode": "explore", "total_calls": 5}')
     state = load_state(state_dir)
-    assert state["mode"] == "debug"
+    assert state["mode"] == "explore"
     assert state["total_calls"] == 5
     assert state["failure_count"] == 0  # filled from fresh_state
 
@@ -98,11 +98,11 @@ def test_load_partial_state_fills_defaults(state_dir):
 def test_save_atomic_no_partial_writes(state_dir):
     """save_state uses tmp+rename so a crash mid-write won't corrupt."""
     state = fresh_state()
-    state["mode"] = "debug"
+    state["mode"] = "explore"
     save_state(state, state_dir)
 
     # Verify no .tmp file left behind
     assert not (state_dir / "state.json.tmp").exists()
     # Verify the file is valid
     loaded = load_state(state_dir)
-    assert loaded["mode"] == "debug"
+    assert loaded["mode"] == "explore"

@@ -106,7 +106,7 @@ class TestPreToolUseEdit:
         assert "tests/test_auth.py" in output["permissionDecisionReason"]
 
     def test_edit_test_in_test_dev_allows(self, project_in_mode):
-        proj = project_in_mode("test_dev")
+        proj = project_in_mode("test")
         hook = _pre_hook("Edit", {
             "file_path": "tests/test_auth.py",
             "old_string": "old",
@@ -116,7 +116,7 @@ class TestPreToolUseEdit:
         assert result is None
 
     def test_edit_src_in_test_dev_denies(self, project_in_mode):
-        proj = project_in_mode("test_dev")
+        proj = project_in_mode("test")
         hook = _pre_hook("Edit", {
             "file_path": "src/auth/handler.py",
             "old_string": "old",
@@ -127,7 +127,7 @@ class TestPreToolUseEdit:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_edit_anything_in_debug_denies(self, project_in_mode):
-        proj = project_in_mode("debug")
+        proj = project_in_mode("explore")
         hook = _pre_hook("Edit", {
             "file_path": "src/main.py",
             "old_string": "old",
@@ -138,7 +138,7 @@ class TestPreToolUseEdit:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_edit_anything_in_review_denies(self, project_in_mode):
-        proj = project_in_mode("review")
+        proj = project_in_mode("explore")
         hook = _pre_hook("Edit", {"file_path": "src/main.py", "old_string": "a", "new_string": "b"})
         result = handle_pre_tool_use(hook, project_dir=proj)
         assert result is not None
@@ -155,25 +155,25 @@ class TestPreToolUseEdit:
         assert result is None
 
     def test_edit_anything_in_create_allows(self, project_in_mode):
-        proj = project_in_mode("create")
+        proj = project_in_mode("free")
         hook = _pre_hook("Edit", {"file_path": "new_module/init.py", "old_string": "", "new_string": "# new"})
         result = handle_pre_tool_use(hook, project_dir=proj)
         assert result is None
 
     def test_edit_docs_in_document_allows(self, project_in_mode):
-        proj = project_in_mode("document")
+        proj = project_in_mode("docs")
         hook = _pre_hook("Edit", {"file_path": "docs/api.md", "old_string": "old", "new_string": "new"})
         result = handle_pre_tool_use(hook, project_dir=proj)
         assert result is None
 
     def test_edit_readme_in_document_allows(self, project_in_mode):
-        proj = project_in_mode("document")
+        proj = project_in_mode("docs")
         hook = _pre_hook("Edit", {"file_path": "README.md", "old_string": "old", "new_string": "new"})
         result = handle_pre_tool_use(hook, project_dir=proj)
         assert result is None
 
     def test_edit_src_in_document_denies(self, project_in_mode):
-        proj = project_in_mode("document")
+        proj = project_in_mode("docs")
         hook = _pre_hook("Edit", {"file_path": "src/main.py", "old_string": "a", "new_string": "b"})
         result = handle_pre_tool_use(hook, project_dir=proj)
         assert result is not None
@@ -250,7 +250,7 @@ class TestPreToolUseReadOnly:
     """Read, Grep, Glob, WebFetch, WebSearch, Agent — never blocked."""
 
     def test_read_passes_in_any_mode(self, project_in_mode):
-        for mode in ["debug", "review", "implement", "free"]:
+        for mode in ["explore", "implement", "test", "free"]:
             proj = project_in_mode(mode)
             hook = _pre_hook("Read", {"file_path": "src/secret.py"})
             result = handle_pre_tool_use(hook, project_dir=proj)
@@ -603,7 +603,7 @@ class TestPostToolUseModeTransitions:
             )
 
         state = load_state(project / ".kibitzer")
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"
         assert state["previous_mode"] == "implement"
         assert state["mode_switches"] == 1
 
@@ -634,7 +634,7 @@ class TestPostToolUseModeTransitions:
         output = result["hookSpecificOutput"]
         assert output["hookEventName"] == "PostToolUse"
         assert "additionalContext" in output
-        assert "[kibitzer] Mode switched to debug" in output["additionalContext"]
+        assert "[kibitzer] Mode switched to explore" in output["additionalContext"]
 
     def test_free_mode_never_auto_transitions(self, project_in_mode):
         proj = project_in_mode("free")
@@ -648,7 +648,7 @@ class TestPostToolUseModeTransitions:
         assert state["mode"] == "free"
 
     def test_debug_exits_after_max_turns(self, project_in_mode):
-        proj = project_in_mode("debug", turns_in_mode=20)
+        proj = project_in_mode("explore", turns_in_mode=20)
 
         handle_post_tool_use(
             _post_hook("Read", {"file_path": "src/foo.py"}, {"content": "hello"}),
@@ -663,7 +663,7 @@ class TestPostToolUseModeTransitions:
         proj = project_in_mode(
             "implement",
             consecutive_failures=10,
-            previous_mode="debug",
+            previous_mode="explore",
             turns_in_previous_mode=2,
         )
 

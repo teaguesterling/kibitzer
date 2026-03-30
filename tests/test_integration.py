@@ -47,7 +47,7 @@ class TestPathGuardEndToEnd:
 
     def test_document_mode_allows_docs(self, project):
         state = load_state(project / ".kibitzer")
-        state["mode"] = "document"
+        state["mode"] = "docs"
         save_state(state, project / ".kibitzer")
 
         assert handle_pre_tool_use(
@@ -77,7 +77,7 @@ class TestFailureDrivenModeSwitch:
             )
 
         state = load_state(project / ".kibitzer")
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"
         assert state["previous_mode"] == "implement"
 
     def test_success_resets_streak(self, project):
@@ -135,7 +135,7 @@ class TestMCPAndHooksShareState:
         """ChangeToolMode via MCP should be respected by hooks."""
         from kibitzer.mcp.server import change_tool_mode
 
-        change_tool_mode("test_dev", project_dir=project)
+        change_tool_mode("test", project_dir=project)
 
         # Now test edit should be allowed, src edit denied
         assert handle_pre_tool_use(

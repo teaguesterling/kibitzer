@@ -504,13 +504,13 @@ class TestModeAwareness:
     # --- Analysis loop ---
 
     def test_analysis_loop_suppressed_in_debug(self):
-        """In debug mode, not editing is correct — no analysis loop warning."""
-        state = self._state_with("debug", total_calls=20, last_edit_turn=0)
+        """In explore mode, not editing is correct — no analysis loop warning."""
+        state = self._state_with("explore", total_calls=20, last_edit_turn=0)
         patterns = detect_patterns(state)
         assert not any(pid == "analysis_loop" for pid, _ in patterns)
 
     def test_analysis_loop_suppressed_in_review(self):
-        state = self._state_with("review", total_calls=20, last_edit_turn=0)
+        state = self._state_with("explore", total_calls=20, last_edit_turn=0)
         patterns = detect_patterns(state)
         assert not any(pid == "analysis_loop" for pid, _ in patterns)
 
@@ -527,13 +527,13 @@ class TestModeAwareness:
     # --- Sequential reads ---
 
     def test_sequential_reads_suppressed_in_debug(self):
-        """In debug mode, reading sequentially is expected."""
-        state = self._state_with("debug", consecutive_reads=5)
+        """In explore mode, reading sequentially is expected."""
+        state = self._state_with("explore", consecutive_reads=5)
         patterns = detect_patterns(state)
         assert not any(pid == "sequential_reads" for pid, _ in patterns)
 
     def test_sequential_reads_suppressed_in_review(self):
-        state = self._state_with("review", consecutive_reads=5)
+        state = self._state_with("explore", consecutive_reads=5)
         patterns = detect_patterns(state)
         assert not any(pid == "sequential_reads" for pid, _ in patterns)
 
@@ -545,17 +545,17 @@ class TestModeAwareness:
     # --- Edit without test ---
 
     def test_edit_without_test_suppressed_in_debug(self):
-        state = self._state_with("debug", edits_since_test=10)
+        state = self._state_with("explore", edits_since_test=10)
         patterns = detect_patterns(state)
         assert not any(pid == "edit_without_test" for pid, _ in patterns)
 
     def test_edit_without_test_suppressed_in_review(self):
-        state = self._state_with("review", edits_since_test=10)
+        state = self._state_with("explore", edits_since_test=10)
         patterns = detect_patterns(state)
         assert not any(pid == "edit_without_test" for pid, _ in patterns)
 
     def test_edit_without_test_fires_in_test_dev(self):
-        state = self._state_with("test_dev", edits_since_test=10)
+        state = self._state_with("test", edits_since_test=10)
         patterns = detect_patterns(state)
         assert any(pid == "edit_without_test" for pid, _ in patterns)
 
@@ -563,14 +563,14 @@ class TestModeAwareness:
 
     def test_edit_failure_suppressed_in_debug(self):
         state = self._state_with(
-            "debug", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
+            "explore", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
         )
         patterns = detect_patterns(state)
         assert not any(pid == "repeated_edit_failure" for pid, _ in patterns)
 
     def test_edit_failure_fires_in_create(self):
         state = self._state_with(
-            "create", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
+            "free", consecutive_edit_failures=3, last_failed_edit_file="src/foo.py",
         )
         patterns = detect_patterns(state)
         assert any(pid == "repeated_edit_failure" for pid, _ in patterns)
@@ -578,11 +578,11 @@ class TestModeAwareness:
     # --- Semantic underuse fires in all modes ---
 
     def test_semantic_underuse_fires_in_debug(self, tmp_path):
-        """Even in debug mode, suggesting semantic tools is helpful."""
+        """Even in explore mode, suggesting semantic tools is helpful."""
         import json
         (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"fledgling": {"command": "duckdb"}}}))
         state = self._state_with(
-            "debug",
+            "explore",
             total_calls=15,
             tools_used_in_mode={"Read": 8, "Grep": 3},
             semantic_tools_used=False,
@@ -594,7 +594,7 @@ class TestModeAwareness:
         import json
         (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"fledgling": {"command": "duckdb"}}}))
         state = self._state_with(
-            "review",
+            "explore",
             total_calls=15,
             tools_used_in_mode={"Read": 8, "Grep": 3},
             semantic_tools_used=False,
@@ -606,25 +606,25 @@ class TestModeAwareness:
 
     def test_edit_without_test_suppressed_in_document(self):
         """Editing docs doesn't need test runs."""
-        state = self._state_with("document", edits_since_test=10)
+        state = self._state_with("docs", edits_since_test=10)
         patterns = detect_patterns(state)
         assert not any(pid == "edit_without_test" for pid, _ in patterns)
 
     def test_analysis_loop_fires_in_document(self):
         """Document mode is writable — if you're not writing, something's off."""
-        state = self._state_with("document", total_calls=20, last_edit_turn=0)
+        state = self._state_with("docs", total_calls=20, last_edit_turn=0)
         patterns = detect_patterns(state)
         assert any(pid == "analysis_loop" for pid, _ in patterns)
 
     # --- Bash-heavy ---
 
     def test_bash_heavy_suppressed_in_debug(self):
-        state = self._state_with("debug", bash_without_structured=8)
+        state = self._state_with("explore", bash_without_structured=8)
         patterns = detect_patterns(state)
         assert not any(pid == "bash_heavy" for pid, _ in patterns)
 
     def test_bash_heavy_suppressed_in_review(self):
-        state = self._state_with("review", bash_without_structured=8)
+        state = self._state_with("explore", bash_without_structured=8)
         patterns = detect_patterns(state)
         assert not any(pid == "bash_heavy" for pid, _ in patterns)
 

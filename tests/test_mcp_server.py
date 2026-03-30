@@ -19,23 +19,23 @@ def project_with_state(tmp_path):
 
 class TestChangeToolMode:
     def test_switch_mode(self, project_with_state):
-        result = change_tool_mode("debug", project_dir=project_with_state)
+        result = change_tool_mode("explore", project_dir=project_with_state)
         assert result["previous_mode"] == "implement"
-        assert result["new_mode"] == "debug"
+        assert result["new_mode"] == "explore"
         assert result["writable"] == []
         state = load_state(project_with_state / ".kibitzer")
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"
 
     def test_switch_resets_counters(self, project_with_state):
-        change_tool_mode("debug", project_dir=project_with_state)
+        change_tool_mode("explore", project_dir=project_with_state)
         state = load_state(project_with_state / ".kibitzer")
         assert state["failure_count"] == 0
         assert state["success_count"] == 0
         assert state["turns_in_mode"] == 0
 
     def test_switch_with_reason(self, project_with_state):
-        result = change_tool_mode("debug", reason="tests failing", project_dir=project_with_state)
-        assert result["new_mode"] == "debug"
+        result = change_tool_mode("explore", reason="tests failing", project_dir=project_with_state)
+        assert result["new_mode"] == "explore"
 
     def test_invalid_mode(self, project_with_state):
         result = change_tool_mode("nonexistent", project_dir=project_with_state)

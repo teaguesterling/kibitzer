@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-_NO_AUTO_TRANSITION = {"free", "create"}
+_NO_AUTO_TRANSITION = {"free"}
 _MIN_TURNS_BEFORE_RETURN = 5
 _MAX_MODE_SWITCHES = 6
 
@@ -114,15 +114,15 @@ def check_transitions(state: dict[str, Any], config: dict) -> Optional[Transitio
         return None
     controller = config.get("controller", {})
     max_failures = controller.get("max_consecutive_failures", 3)
-    max_debug_turns = controller.get("max_turns_in_debug", 20)
+    max_explore_turns = controller.get("max_turns_in_explore", 20)
 
-    if mode not in ("debug", "review") and state["consecutive_failures"] >= max_failures:
-        if should_transition(state, "debug"):
-            return Transition(target="debug", reason=f"Too many consecutive failures ({state['consecutive_failures']})")
+    if mode != "explore" and state["consecutive_failures"] >= max_failures:
+        if should_transition(state, "explore"):
+            return Transition(target="explore", reason=f"Too many consecutive failures ({state['consecutive_failures']})")
 
-    if mode == "debug" and state["turns_in_mode"] >= max_debug_turns:
+    if mode == "explore" and state["turns_in_mode"] >= max_explore_turns:
         if should_transition(state, "implement"):
-            return Transition(target="implement", reason=f"Extended diagnosis ({state['turns_in_mode']} turns) — time to try fixing")
+            return Transition(target="implement", reason=f"Extended exploration ({state['turns_in_mode']} turns) — time to try fixing")
 
     return None
 

@@ -12,7 +12,7 @@ def test_load_default_config():
 
 def test_load_default_has_all_modes():
     config = load_config(project_dir=Path("/nonexistent"))
-    expected_modes = {"free", "create", "implement", "test_dev", "document", "debug", "review"}
+    expected_modes = {"free", "implement", "test", "docs", "explore"}
     assert set(config["modes"].keys()) == expected_modes
 
 
@@ -29,7 +29,7 @@ strategy = "custom strategy"
     assert config["modes"]["implement"]["writable"] == ["src/", "lib/", "pkg/"]
     assert config["modes"]["implement"]["strategy"] == "custom strategy"
     # Other modes still have defaults
-    assert config["modes"]["debug"]["writable"] == []
+    assert config["modes"]["explore"]["writable"] == []
 
 
 def test_get_mode_policy():
@@ -48,7 +48,7 @@ def test_get_mode_policy_unknown_mode():
 def test_controller_config():
     config = load_config(project_dir=Path("/nonexistent"))
     assert config["controller"]["max_consecutive_failures"] == 3
-    assert config["controller"]["max_turns_in_debug"] == 20
+    assert config["controller"]["max_turns_in_explore"] == 20
 
 
 def test_coach_config_with_model_overrides():

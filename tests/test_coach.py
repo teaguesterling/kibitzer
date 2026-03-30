@@ -74,10 +74,10 @@ class TestDetectPatterns:
 
     def test_mode_mismatch_debug_with_edits(self):
         state = fresh_state()
-        state["mode"] = "debug"
+        state["mode"] = "explore"
         state["tools_used_in_mode"]["Edit"] = 2
         patterns = detect_patterns(state)
-        assert any("debug" in msg.lower() for _, msg in patterns)
+        assert any("explore" in msg.lower() for _, msg in patterns)
 
 
 class TestGenerateSuggestions:

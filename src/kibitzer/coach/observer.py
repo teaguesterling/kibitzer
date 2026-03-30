@@ -24,8 +24,8 @@ _ANALYSIS_LOOP_THRESHOLD = 15
 _BASH_HEAVY_THRESHOLD = 5
 
 # Mode sets for pattern applicability
-_WRITABLE_MODES = {"implement", "test_dev", "create", "free"}
-_READONLY_MODES = {"debug", "review"}
+_WRITABLE_MODES = {"implement", "test", "free"}
+_READONLY_MODES = {"explore"}
 
 
 def detect_patterns(
@@ -67,7 +67,7 @@ def detect_patterns(
             ))
 
     # Obs 3: Edit streak without tests
-    if mode in _WRITABLE_MODES and mode != "document":
+    if mode in _WRITABLE_MODES and mode != "docs":
         edits_since_test = state.get("edits_since_test", 0)
         if edits_since_test > _EDITS_SINCE_TEST_THRESHOLD:
             hint = _test_tool_hint(available)
@@ -132,10 +132,10 @@ def detect_patterns(
         ))
 
     # Mode mismatch: editing in debug mode
-    if mode == "debug" and tools.get("Edit", 0) > 0:
+    if mode == "explore" and tools.get("Edit", 0) > 0:
         patterns.append((
-            "debug_mode_edits",
-            "You're editing files in debug mode. "
+            "explore_mode_edits",
+            "You're editing files in explore mode. "
             "Use ChangeToolMode to switch to implement mode first.",
         ))
 

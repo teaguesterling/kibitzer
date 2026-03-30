@@ -51,9 +51,9 @@ class TestPostToolUseModeTransition:
         }
         result = handle_post_tool_use(hook_input, project_dir=implement_project)
         state = load_state(implement_project / ".kibitzer")
-        assert state["mode"] == "debug"
+        assert state["mode"] == "explore"
         assert result is not None
-        assert "debug" in result.get("hookSpecificOutput", {}).get("additionalContext", "")
+        assert "explore" in result.get("hookSpecificOutput", {}).get("additionalContext", "")
 
 
 class TestPostToolUseCoach:

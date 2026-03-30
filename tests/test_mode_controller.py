@@ -57,24 +57,24 @@ class TestUpdateCounters:
 class TestShouldTransition:
     def test_allows_normal_transition(self):
         state = fresh_state()
-        assert should_transition(state, "debug")
+        assert should_transition(state, "explore")
 
     def test_blocks_oscillation_to_previous_mode(self):
         state = fresh_state()
-        state["previous_mode"] = "debug"
+        state["previous_mode"] = "explore"
         state["turns_in_previous_mode"] = 2
-        assert not should_transition(state, "debug")
+        assert not should_transition(state, "explore")
 
     def test_allows_transition_after_enough_turns(self):
         state = fresh_state()
-        state["previous_mode"] = "debug"
+        state["previous_mode"] = "explore"
         state["turns_in_previous_mode"] = 10
-        assert should_transition(state, "debug")
+        assert should_transition(state, "explore")
 
     def test_blocks_after_too_many_switches(self):
         state = fresh_state()
         state["mode_switches"] = 7
-        assert not should_transition(state, "debug")
+        assert not should_transition(state, "explore")
 
 
 class TestCheckTransitions:
@@ -84,7 +84,7 @@ class TestCheckTransitions:
         state["consecutive_failures"] = 4
         transition = check_transitions(state, config)
         assert transition is not None
-        assert transition.target == "debug"
+        assert transition.target == "explore"
 
     def test_no_switch_below_threshold(self, config):
         state = fresh_state()
@@ -95,7 +95,7 @@ class TestCheckTransitions:
 
     def test_switch_out_of_debug_after_max_turns(self, config):
         state = fresh_state()
-        state["mode"] = "debug"
+        state["mode"] = "explore"
         state["turns_in_mode"] = 25
         transition = check_transitions(state, config)
         assert transition is not None
@@ -112,7 +112,7 @@ class TestCheckTransitions:
         state = fresh_state()
         state["mode"] = "implement"
         state["consecutive_failures"] = 4
-        state["previous_mode"] = "debug"
+        state["previous_mode"] = "explore"
         state["turns_in_previous_mode"] = 2
         transition = check_transitions(state, config)
         assert transition is None
