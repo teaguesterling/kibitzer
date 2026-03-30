@@ -40,6 +40,13 @@ def handle_pre_tool_use(
     if tool_name in _WRITE_TOOLS:
         file_path = tool_input.get("file_path", "")
         if file_path:
+            # Relativize absolute paths to project dir for prefix matching
+            try:
+                fp = Path(file_path)
+                if fp.is_absolute():
+                    file_path = str(fp.relative_to(project_dir))
+            except (ValueError, TypeError):
+                pass  # not under project_dir — check as-is
             result = check_path(file_path, mode_policy)
             if not result.allowed:
                 return {

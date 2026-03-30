@@ -291,6 +291,44 @@ class TestPreToolUseReadOnly:
 
 
 # ===========================================================================
+# PreToolUse — Absolute paths (Claude Code sends these)
+# ===========================================================================
+
+class TestPreToolUseAbsolutePaths:
+    """Claude Code sends absolute file paths. Path guard must relativize them."""
+
+    def test_absolute_src_path_allowed_in_implement(self, project):
+        abs_path = str(project / "src" / "kibitzer" / "config.py")
+        hook = _pre_hook("Edit", {"file_path": abs_path, "old_string": "a", "new_string": "b"})
+        result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is None
+
+    def test_absolute_test_path_denied_in_implement(self, project):
+        abs_path = str(project / "tests" / "test_foo.py")
+        hook = _pre_hook("Edit", {"file_path": abs_path, "old_string": "a", "new_string": "b"})
+        result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is not None
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_absolute_path_outside_project_denied(self, project):
+        hook = _pre_hook("Edit", {"file_path": "/etc/passwd", "old_string": "a", "new_string": "b"})
+        result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is not None
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_absolute_path_in_free_mode_allowed(self, project):
+        from kibitzer.state import load_state, save_state
+        state = load_state(project / ".kibitzer")
+        state["mode"] = "free"
+        save_state(state, project / ".kibitzer")
+
+        abs_path = str(project / "tests" / "anything.py")
+        hook = _pre_hook("Edit", {"file_path": abs_path})
+        result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is None
+
+
+# ===========================================================================
 # PreToolUse — Bash interception
 # ===========================================================================
 
