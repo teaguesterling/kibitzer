@@ -21,6 +21,7 @@ _CONSECUTIVE_READS_THRESHOLD = 3
 _SEMANTIC_MIN_CALLS = 10
 _SEMANTIC_MIN_SEARCHES = 5
 _ANALYSIS_LOOP_THRESHOLD = 15
+_BASH_HEAVY_THRESHOLD = 5
 
 # Mode sets for pattern applicability
 _WRITABLE_MODES = {"implement", "test_dev", "create", "free"}
@@ -99,6 +100,16 @@ def detect_patterns(
                 "analysis_loop",
                 f"You've spent {turns_since_edit} turns reading without making changes. "
                 "Consider starting with the most confident fix — you can verify with tests and adjust.",
+            ))
+
+    # Bash-heavy usage without structured tools
+    if mode not in _READONLY_MODES:
+        bash_count = state.get("bash_without_structured", 0)
+        if bash_count > _BASH_HEAVY_THRESHOLD:
+            patterns.append((
+                "bash_heavy",
+                f"You've run {bash_count} bash commands without using structured tools. "
+                "Edit, Grep, and Read provide better context.",
             ))
 
     # High failure ratio

@@ -32,6 +32,7 @@ def fresh_state(default_mode: str = "implement") -> dict[str, Any]:
         "edits_since_test": 0,
         "last_edit_turn": 0,
         "semantic_tools_used": False,
+        "bash_without_structured": 0,
     }
 
 

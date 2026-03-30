@@ -159,6 +159,48 @@ class TestLastEditTurnTracking:
         # turns_since_edit = total_calls - last_edit_turn = 5
 
 
+class TestBashHeavyTracking:
+    """Track bash calls without structured tools (Edit, Write, Grep, Read)."""
+
+    def test_bash_increments_counter(self):
+        state = fresh_state()
+        update_counters(state, tool_name="Bash", success=True,
+                        tool_input={"command": "ls -la"})
+        assert state["bash_without_structured"] == 1
+
+    def test_structured_tool_resets_counter(self):
+        state = fresh_state()
+        state["bash_without_structured"] = 5
+        update_counters(state, tool_name="Edit", success=True)
+        assert state["bash_without_structured"] == 0
+
+    def test_grep_resets_counter(self):
+        state = fresh_state()
+        state["bash_without_structured"] = 3
+        update_counters(state, tool_name="Grep", success=True)
+        assert state["bash_without_structured"] == 0
+
+    def test_read_resets_counter(self):
+        state = fresh_state()
+        state["bash_without_structured"] = 4
+        update_counters(state, tool_name="Read", success=True)
+        assert state["bash_without_structured"] == 0
+
+    def test_bash_accumulates(self):
+        state = fresh_state()
+        for _ in range(6):
+            update_counters(state, tool_name="Bash", success=True,
+                            tool_input={"command": "echo hi"})
+        assert state["bash_without_structured"] == 6
+
+    def test_agent_tool_doesnt_reset(self):
+        """Non-structured tools don't reset the bash counter."""
+        state = fresh_state()
+        state["bash_without_structured"] = 4
+        update_counters(state, tool_name="Agent", success=True)
+        assert state["bash_without_structured"] == 4
+
+
 # ===========================================================================
 # Pattern detection — observer.detect_patterns
 # ===========================================================================
@@ -294,6 +336,32 @@ class TestSemanticToolUnderusePattern:
         state["semantic_tools_used"] = False
         patterns = detect_patterns(state)
         matching = [pid for pid, _ in patterns if pid == "semantic_underuse"]
+        assert len(matching) == 0
+
+
+class TestBashHeavyPattern:
+    """Detect when agent is bash-heavy without structured tools."""
+
+    def test_triggers_after_6_bash_calls(self):
+        state = fresh_state()
+        state["bash_without_structured"] = 6
+        patterns = detect_patterns(state)
+        matching = [(pid, msg) for pid, msg in patterns if pid == "bash_heavy"]
+        assert len(matching) == 1
+        assert "6" in matching[0][1]
+        assert "structured tools" in matching[0][1]
+
+    def test_does_not_trigger_at_5(self):
+        state = fresh_state()
+        state["bash_without_structured"] = 5
+        patterns = detect_patterns(state)
+        matching = [pid for pid, _ in patterns if pid == "bash_heavy"]
+        assert len(matching) == 0
+
+    def test_does_not_trigger_at_0(self):
+        state = fresh_state()
+        patterns = detect_patterns(state)
+        matching = [pid for pid, _ in patterns if pid == "bash_heavy"]
         assert len(matching) == 0
 
 
@@ -547,3 +615,20 @@ class TestModeAwareness:
         state = self._state_with("document", total_calls=20, last_edit_turn=0)
         patterns = detect_patterns(state)
         assert any(pid == "analysis_loop" for pid, _ in patterns)
+
+    # --- Bash-heavy ---
+
+    def test_bash_heavy_suppressed_in_debug(self):
+        state = self._state_with("debug", bash_without_structured=8)
+        patterns = detect_patterns(state)
+        assert not any(pid == "bash_heavy" for pid, _ in patterns)
+
+    def test_bash_heavy_suppressed_in_review(self):
+        state = self._state_with("review", bash_without_structured=8)
+        patterns = detect_patterns(state)
+        assert not any(pid == "bash_heavy" for pid, _ in patterns)
+
+    def test_bash_heavy_fires_in_implement(self):
+        state = self._state_with("implement", bash_without_structured=8)
+        patterns = detect_patterns(state)
+        assert any(pid == "bash_heavy" for pid, _ in patterns)

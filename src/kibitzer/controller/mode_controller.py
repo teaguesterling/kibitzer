@@ -19,6 +19,7 @@ class Transition:
 _TEST_COMMANDS = {"pytest", "python -m pytest", "npm test", "cargo test", "go test", "make test"}
 _EDIT_TOOLS = {"Edit", "Write", "NotebookEdit"}
 _SEARCH_TOOLS = {"Read", "Grep", "Glob"}
+_STRUCTURED_TOOLS = {"Edit", "Write", "Grep", "Read"}
 _SEMANTIC_TOOLS = {"mcp__fledgling__FindDefinitions", "mcp__fledgling__FindCallers",
                    "mcp__fledgling__CodeStructure", "FindDefinitions", "FindCallers",
                    "CodeStructure"}
@@ -84,6 +85,12 @@ def update_counters(
     # Obs 7: Last edit turn
     if tool_name in _EDIT_TOOLS:
         state["last_edit_turn"] = state["total_calls"]
+
+    # Bash-heavy: track bash calls without structured tools
+    if tool_name == "Bash":
+        state["bash_without_structured"] = state.get("bash_without_structured", 0) + 1
+    elif tool_name in _STRUCTURED_TOOLS:
+        state["bash_without_structured"] = 0
 
 
 def should_transition(state: dict[str, Any], target: str) -> bool:
