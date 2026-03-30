@@ -17,13 +17,19 @@ cd your-project/
 kibitzer init --hooks --mcp
 ```
 
-This registers PreToolUse/PostToolUse hooks in `.claude/settings.json` and optionally starts an MCP server with two tools: `ChangeToolMode` and `GetFeedback`.
+This registers PreToolUse/PostToolUse hooks in `.claude/settings.json` and starts an MCP server with two tools the agent can call: `ChangeToolMode` and `GetFeedback`.
+
+For richer coaching with [Fledgling](https://github.com/teague/source-sextant) conversation analytics:
+
+```bash
+pip install kibitzer[fledgling]
+```
 
 ## What it does
 
 ### Path protection
 
-Each mode defines which paths the agent can write to. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call.
+Each mode defines which paths the agent can write to. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call — including absolute paths from Claude Code.
 
 ```
 Mode        Writable            Use case
@@ -44,6 +50,8 @@ Path 'tests/test_auth.py' is not writable in the current mode (writable: ['src/'
 Use the ChangeToolMode tool to switch modes.
 ```
 
+In testing, agents consistently read this message and call `ChangeToolMode` to switch — no documentation or pre-training needed.
+
 ### Interception
 
 Interceptor plugins watch Bash calls for commands that have structured alternatives:
@@ -58,15 +66,24 @@ Three interception modes form a ratchet — start in `observe` (log silently), g
 
 ### Coaching
 
-The coach fires every N tool calls and detects patterns from ~250 experimental runs:
+The coach fires every N tool calls and detects patterns from ~250 experimental runs. Suggestions only reference tools the agent actually has — discovered from `.mcp.json` at runtime.
+
+**State-based patterns (always available):**
 
 - **Repeated edit failures** — "Edit failed 3 times on src/handler.py. Try Read() first to see exact content."
-- **Edit streak without tests** — "You've made 7 edits without running tests."
-- **Semantic tool underuse** — "FindDefinitions shows all functions in one call instead of grepping file by file."
+- **Edit streak without tests** — "You've made 7 edits without running tests." (mentions `blq run test` if blq is available)
+- **Sequential file reads** — "You've read 5 files one at a time." (mentions `FindDefinitions` if fledgling is available)
+- **Bash-heavy usage** — "You've run 6 bash commands without using structured tools."
 - **Analysis loop** — "You've spent 18 turns reading without changes. Start with the most confident fix."
+- **Semantic tool underuse** — "FindDefinitions shows all functions in one call." (only fires if fledgling is available)
 - **Mode oscillation** — "Frequent mode switches. Consider using free mode."
 
-Patterns are mode-aware: the analysis loop doesn't fire in debug mode (not editing is correct there), edit-without-test doesn't fire in document mode (docs don't need tests).
+**Fledgling-powered patterns (when fledgling is installed):**
+
+- **Repeated search patterns** — "You've searched for 'def handle_request' 4 times via Grep."
+- **Replaceable bash commands** — "You've run 'grep' 3 times. FindDefinitions provides structured output."
+
+All patterns are mode-aware: the analysis loop doesn't fire in debug mode (not editing is correct there), edit-without-test doesn't fire in document mode (docs don't need tests).
 
 ### Auto-transitions
 
@@ -110,7 +127,7 @@ Kibitzer suggests but never wraps these tools — each is independent:
 - **[jetsam](https://github.com/teague/jetsam)** — git workflow acceleration
 - **[Fledgling](https://github.com/teague/source-sextant)** — AST-aware code intelligence
 
-None are required. Kibitzer degrades gracefully — path guard and coach work with nothing else installed.
+None are required. Kibitzer degrades gracefully — path guard and coach work with nothing else installed. When tools are available, suggestions reference them specifically. When they're not, suggestions give generic advice.
 
 ## Documentation
 
@@ -119,8 +136,9 @@ Full docs at [kibitzer.readthedocs.io](https://kibitzer.readthedocs.io):
 - [Modes](https://kibitzer.readthedocs.io/modes/) — path protection, switching, auto-transitions
 - [Coach](https://kibitzer.readthedocs.io/coach/) — all patterns, experimental evidence, model dependency
 - [Interceptors](https://kibitzer.readthedocs.io/interceptors/) — the observe/suggest/redirect ratchet
-- [Configuration](https://kibitzer.readthedocs.io/configuration/) — full config.toml reference
+- [Configuration](https://kibitzer.readthedocs.io/configuration/) — full config.toml reference, resilience, optional deps
 - [Architecture](https://kibitzer.readthedocs.io/architecture/) — how the pieces fit together
+- [Integration](https://kibitzer.readthedocs.io/integration/) — blq, jetsam, fledgling, superpowers
 
 ## License
 
