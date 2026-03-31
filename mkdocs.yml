@@ -52,4 +52,5 @@ nav:
     - Architecture: architecture.md
     - Coach: coach.md
     - Interceptors: interceptors.md
+  - Python API: python-api.md
   - Integration: integration.md
