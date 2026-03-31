@@ -210,9 +210,69 @@ These should be fixed before or alongside the v0.2 feature work.
 6. Add context injection on transitions (jetsam/blq summaries)
 7. Update docs (fix items 7-8, update for v0.2 features)
 
+### Ecosystem integrations
+
+#### Agent Riggs — cross-session intelligence (System 3*)
+
+Riggs is kibitzer's cross-session memory. It ingests events from kibitzer's state and intercept logs, computes trust scores (t1/t5/t15 EWMA windows), and writes recommendations back to `.kibitzer/state.json`.
+
+**Integration points:**
+- Riggs reads: `.kibitzer/state.json`, `.kibitzer/intercept.log`
+- Riggs writes: trust level and transition recommendations to `.kibitzer/state.json`
+- Kibitzer reads: Riggs' trust recommendations to inform auto-transition decisions
+- The `trust_level` field in state.json is the handoff point — Riggs sets it, kibitzer respects it
+
+**Ratchet promotions:** Riggs identifies bash patterns that should be promoted (frequency ≥ 5, sessions ≥ 3, success rate ≥ 0.8) and recommends graduating interceptors from observe → suggest → redirect. Human reviews before applying.
+
+**Session briefings:** Riggs composes briefings from trust + ratchet data. Could inject via a SessionStart hook or MCP resource (`riggs://briefing`).
+
+#### lackpy — tool composition delegation
+
+lackpy takes an intent, generates a restricted Python program against an AST whitelist, and executes with traced tool calls. One MCP call replaces N tool round-trips.
+
+This is the *solution* to several patterns the coach detects:
+
+| Coach detects | lackpy could do |
+|---|---|
+| 3+ sequential reads | `lackpy delegate "read and summarize these files" --kit read` |
+| Repeated grep for same pattern | `lackpy delegate "find all definitions of X" --kit read,glob` |
+| Multiple edits to apply same change | `lackpy delegate "apply this pattern to all matching files" --kit read,glob` |
+
+**New interceptor type: sequence interceptor.** Current interceptors match single Bash commands. A LackpyInterceptor would match *sequences* of tool calls — detecting when multiple calls could be composed into a single delegation.
+
+**Implementation approach:**
+- Track recent tool call sequences in state (last N calls with their inputs)
+- LackpyInterceptor checks the sequence for composable patterns
+- In suggest mode: "These 5 reads could be one lackpy delegation"
+- In redirect mode: automatically compose and delegate (future, needs more trust)
+- lackpy availability checked via `.mcp.json` or `shutil.which("lackpy")`
+
+**Key constraint:** lackpy generates and executes code, so this is a higher-trust suggestion than "use jetsam save." The interceptor should probably stay in observe/suggest mode longer before graduating to redirect.
+
+#### sitting_duck / astquery — structural code intelligence
+
+With sitting_duck's `ast_select` (CSS selectors for AST querying), the coach could move from file-level observations to structural observations:
+
+| Current coach (file-level) | With ast_select (structural) |
+|---|---|
+| "test_auth.py edited 4 times" | "3 assertions in test_auth rewritten — overfitting?" |
+| "5 edits without tests" | "modified handle_request return type — 3 callers may need updating" |
+| "editing in explore mode" | "modified a function with @deprecated decorator" |
+
+**Where this lives:** Fledgling, not kibitzer. Fledgling exposes higher-level queries (`change_impact()`, `assertion_churn()`), kibitzer's coach consumes them. Kibitzer shouldn't know AST internals.
+
+**Dependency:** Waiting on the astquery/fledgling-edit layer that provides a builder API over sitting_duck queries + fledgling-edit changesets.
+
+#### nsjail-python — physical enforcement
+
+When kibitzer's path guard blocks a Bash write in a read-only mode, it's a soft deny (the agent sees a message). nsjail-python via blq provides hard enforcement — the command physically cannot write to protected paths.
+
+**Integration:** kibitzer's mode → blq's sandbox spec → nsjail config. When mode is `explore`, blq could enforce `readonly_root()` via nsjail. This is blq's domain, not kibitzer's — kibitzer just communicates the mode.
+
 ### Open questions
 
 - Should `ChangeToolMode` be renamed to just `mode` or `SetMode`?
 - Should auto-transitions be logged to intercept.log for ratchet data?
 - Should the default starting mode be `explore` instead of `implement`?
+- Should sequence interceptors (for lackpy) live in the interceptor plugin system or be a separate coach pattern?
 - Future: should kibitzer predict the next mode based on recent tool patterns? (the HMM idea — park for now)
