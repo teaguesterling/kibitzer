@@ -194,6 +194,62 @@ session.config        # loaded config dict
 session.writable      # current mode's writable paths (list[str])
 ```
 
+### Tool registration and program validation (lackpy integration)
+
+For tool-composition engines that need grade-aware enforcement and program-level validation.
+
+#### register_tools
+
+```python
+session.register_tools([
+    {"name": "Read", "grade": (0, 0)},
+    {"name": "Edit", "grade": (2, 1)},
+    {"name": "Bash", "grade": (4, 4)},
+    {"name": "FindDefinitions", "grade": (0, 0)},
+])
+```
+
+Tells kibitzer what tools exist and their grades `(w, d)` — write grade and dependency grade. Enables grade-aware enforcement: modes can specify `max_grade_w = 2` to block high-grade tools even on writable paths.
+
+#### validate_program
+
+```python
+result = session.validate_program({
+    "calls": planned_calls,
+    "grade_ceiling": (2, 1),
+    "call_budget": 20,
+    "intent": "find and fix all type errors",
+})
+```
+
+Program-level validation — checks grade ceiling, call budget, resource patterns ("15 reads in a loop — batch them"), and path violations across all calls. Wraps `validate_calls` with additional checks.
+
+#### register_context
+
+```python
+session.register_context({
+    "task_type": "lackpy_delegation",
+    "intent": "find all functions matching handle_*",
+    "attempt": 2,
+})
+```
+
+Gives the coach task context. In a lackpy delegation, the coach knows to suppress "edit without test" (lackpy manages its own cycle). On a retry, it won't repeat suggestions from the previous attempt.
+
+#### report_generation
+
+```python
+session.report_generation({
+    "intent": "find all type errors",
+    "calls_planned": 8,
+    "calls_executed": 8,
+    "success": True,
+    "calls_replaced": 5,
+})
+```
+
+Feeds delegation outcomes into the SQLite event log for Riggs trust scoring and template promotion.
+
 ### CallResult
 
 Returned by `before_call`, `after_call`, and `validate_calls`.
@@ -225,17 +281,29 @@ session.available_tools    # dict — discovered tools from .mcp.json
 
 ## Integration patterns
 
-### lackpy — pre-validate then execute
+### lackpy — grade-aware validation and execution
 
 ```python
 from kibitzer import KibitzerSession
 
 with KibitzerSession(project_dir=workspace) as session:
-    # 1. Validate the generated program's planned calls
-    violations = session.validate_calls(planned_calls)
-    if violations:
-        # Reject or adjust the program
-        return {"error": "would violate mode constraints", "violations": violations}
+    # 0. Register tools with grades and set context
+    session.register_tools(tool_registry)
+    session.register_context({
+        "task_type": "lackpy_delegation",
+        "intent": intent,
+        "attempt": attempt_number,
+    })
+
+    # 1. Validate the whole program (grade ceiling, call budget, paths)
+    result = session.validate_program({
+        "calls": planned_calls,
+        "grade_ceiling": (2, 1),
+        "call_budget": 20,
+        "intent": intent,
+    })
+    if result.denied:
+        return {"error": result.reason}
 
     # 2. Execute each call, recording results
     for call in execute(program):
@@ -245,10 +313,18 @@ with KibitzerSession(project_dir=workspace) as session:
             success=call.succeeded,
         )
 
-    # 3. Check if the coach has feedback
+    # 3. Report the delegation outcome
+    session.report_generation({
+        "intent": intent,
+        "calls_planned": len(planned_calls),
+        "calls_executed": len(executed),
+        "success": all_succeeded,
+        "calls_replaced": estimated_manual_calls,
+    })
+
+    # 4. Get coaching feedback for next generation
     suggestions = session.get_suggestions()
     if suggestions:
-        # Feed back to the inferencer for next generation
         feedback.extend(suggestions)
 ```
 

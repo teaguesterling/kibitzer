@@ -151,6 +151,104 @@ class CallResult:
         return {}
 ```
 
+## Lackpy integration APIs
+
+Four additional methods on KibitzerSession for tool-composition engines like lackpy. These go beyond the core before_call/after_call pattern to support program-level validation and grade-aware enforcement.
+
+### register_tools(tools)
+
+**Priority: HIGH.** Tell kibitzer what tools exist and their grades.
+
+```python
+session.register_tools([
+    {"name": "Read", "grade": Grade(w=0, d=0)},
+    {"name": "Edit", "grade": Grade(w=2, d=1)},
+    {"name": "Bash", "grade": Grade(w=4, d=4)},
+    {"name": "FindDefinitions", "grade": Grade(w=0, d=0)},
+])
+```
+
+Without this, kibitzer can only check tool names against hardcoded lists. With it, the path guard and coach become grade-aware:
+
+- Mode policies can specify a grade ceiling: `max_grade_w = 2` means Edit is fine, Bash is blocked
+- The coach can suggest lower-grade alternatives: "Bash(grep) is grade 4 — FindDefinitions is grade 0"
+- The interceptor ratchet has a formal basis: observe tools above the grade ceiling, suggest tools below it
+
+**Grade model:** Kibitzer understands grades natively as `(w, d)` tuples — write grade and dependency grade. This is more general than path prefixes. A mode has both: writable paths AND a grade ceiling. Both must pass for a call to be allowed.
+
+```toml
+[modes.implement]
+writable = ["src/", "lib/"]
+max_grade_w = 3          # structured writes only, no arbitrary bash
+max_grade_d = 2          # no network, no external deps
+```
+
+Registered tools are stored in session memory (not persisted — they're declared per-session by the caller).
+
+### validate_program(program_info)
+
+**Priority: MEDIUM.** Program-level validation beyond per-call checks.
+
+```python
+result = session.validate_program({
+    "calls": [...],                    # planned tool calls
+    "grade_ceiling": Grade(w=2, d=1),  # max allowed grade
+    "call_budget": 20,                 # max total calls
+    "intent": "find and fix all type errors",
+})
+```
+
+Returns program-level violations:
+- Grade ceiling exceeded by any call
+- Call budget exceeded
+- Resource patterns ("15 read calls in a loop — consider batching")
+- Path violations across all calls
+
+This wraps `validate_calls` with additional program-level checks. Lackpy calls this before execution; `validate_calls` stays for simpler per-call checking.
+
+### register_context(context)
+
+**Priority: MEDIUM.** Give the coach task context so suggestions are relevant.
+
+```python
+session.register_context({
+    "task_type": "lackpy_delegation",  # or "manual", "retry", "review"
+    "intent": "find all functions matching handle_*",
+    "attempt": 2,                       # retry number
+    "parent_session": "abc123",         # if delegated from another session
+})
+```
+
+Without context, the coach sees individual tool calls with no narrative. With it:
+- In a lackpy delegation, suppress "you've made 5 edits without testing" (lackpy manages its own test cycle)
+- On a retry, the coach knows not to repeat suggestions from the previous attempt
+- From a parent session, the coach inherits relevant state
+
+Context is stored in session memory and included in SQLite events for Riggs analysis.
+
+### report_generation(report)
+
+**Priority: LOW.** Feed outcomes into the event log for cross-session analysis.
+
+```python
+session.report_generation({
+    "intent": "find all type errors",
+    "program_hash": "abc123",
+    "calls_planned": 8,
+    "calls_executed": 8,
+    "success": True,
+    "calls_replaced": 5,          # manual calls this replaced
+    "template_used": "search_and_fix",
+})
+```
+
+Appended to the SQLite event log as `event_type="generation"`. Riggs reads these for:
+- Trust scoring (successful delegations improve trust)
+- Template promotion (which generated programs succeed reliably)
+- Ratchet velocity (how many manual calls are being replaced by delegations)
+
+Can wait until Riggs integration is built.
+
 ## SQLite event log
 
 ### Why
