@@ -1,32 +1,46 @@
 # Architecture
 
-## Two interfaces, one state file
+## KibitzerSession — the core
+
+All of kibitzer's logic lives in `KibitzerSession`. Hooks, MCP server, and external tools are thin wrappers.
 
 ```
-Claude Code
-    │
-    ├── PreToolUse hook ──→ kibitzer-pre.sh ──→ python -m kibitzer.hooks.pre_tool_use
-    │   (before every tool call)                   │
-    │                                              ├── Path guard (Edit/Write/NotebookEdit)
-    │                                              └── Interceptors (Bash)
-    │
-    ├── PostToolUse hook ──→ kibitzer-post.sh ──→ python -m kibitzer.hooks.post_tool_use
-    │   (after every tool call)                    │
-    │                                              ├── Counter update
-    │                                              ├── Mode controller
-    │                                              └── Coach
-    │
-    └── MCP server ──→ kibitzer serve
-        (agent calls explicitly)
-            ├── ChangeToolMode
-            └── GetFeedback
-                                    ▲
-                                    │
-                            .kibitzer/state.json
-                            (shared by all three)
+                        KibitzerSession
+                    ┌───────────────────────┐
+                    │  before_call()        │
+                    │  after_call()         │
+                    │  validate_calls()     │
+                    │  change_mode()        │
+                    │  get_suggestions()    │
+                    │  get_feedback()       │
+                    │  register_tools()     │
+                    │  validate_program()   │
+                    └───────────┬───────────┘
+                                │
+           ┌────────────────────┼────────────────────┐
+           │                    │                     │
+    Claude Code hooks      MCP server           Python API
+    (thin wrappers)        (thin wrapper)       (direct import)
+           │                    │                     │
+    kibitzer-pre.sh        kibitzer serve      from kibitzer import
+    kibitzer-post.sh       ChangeToolMode        KibitzerSession
+                           GetFeedback
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+              .kibitzer/              .kibitzer/
+              state.json              store.sqlite
+              (hot counters)          (event log)
 ```
 
-Hooks and MCP server share state through `.kibitzer/state.json`. No IPC, no sockets, no shared memory. The hooks are separate Python processes — each invocation reads state, does its work, and writes state back. The MCP server reads the same file.
+Two persistence stores:
+
+| Store | Format | Purpose |
+|---|---|---|
+| `state.json` | JSON | Hot counters — mode, failures, turns, suggestions given. Read/written every hook call. |
+| `store.sqlite` | SQLite | Event log — tool calls, denials, mode switches, errors. Append-only, queryable by Riggs via DuckDB ATTACH. |
+
+Hooks and MCP server share state through `KibitzerSession`. Each hook invocation creates a session (`with KibitzerSession(safe_mode=True)`), does its work, and saves on exit. The MCP server holds a longer-lived session. External tools like lackpy import `KibitzerSession` directly.
 
 ## Hook protocol
 
@@ -114,6 +128,8 @@ The MCP server runs as a persistent process (via `kibitzer serve`). It provides 
 
 ```
 src/kibitzer/
+├── session.py             KibitzerSession + CallResult — the Python API
+├── store.py               KibitzerStore — SQLite event log (append, query)
 ├── config.py              Loads config.toml (defaults + project-local merge)
 ├── state.py               Reads/writes .kibitzer/state.json
 ├── guards/
@@ -132,11 +148,11 @@ src/kibitzer/
 │   ├── fledgling.py       Query fledgling for conversation analytics (Python API + CLI fallback)
 │   └── tools.py           Discover available tools from .mcp.json for tailored suggestions
 ├── hooks/
-│   ├── pre_tool_use.py    PreToolUse entry: path guard → interceptors → output
-│   ├── post_tool_use.py   PostToolUse entry: counters → controller → coach → output
+│   ├── pre_tool_use.py    Thin wrapper: KibitzerSession → before_call → hook output
+│   ├── post_tool_use.py   Thin wrapper: KibitzerSession → after_call → hook output
 │   └── templates.py       Generates bash hook scripts for .claude/hooks/
 ├── mcp/
-│   └── server.py          FastMCP server with ChangeToolMode and GetFeedback
+│   └── server.py          Thin wrapper: delegates to KibitzerSession
 ├── cli.py                 Click CLI: init, serve
 └── config.toml            Default configuration
 ```

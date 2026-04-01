@@ -38,11 +38,12 @@ This creates:
 
 ## Documentation
 
-- [Modes](modes.md) — the 7 modes and how path protection works
+- [Modes](modes.md) — the 6 modes and how path protection works
 - [Coach](coach.md) — what patterns the coach detects and when
 - [Interceptors](interceptors.md) — bash command interception and the observe/suggest/redirect ratchet
 - [Configuration](configuration.md) — full config.toml reference
 - [Architecture](architecture.md) — how the pieces fit together
+- [Python API](python-api.md) — use kibitzer from Python (for lackpy, Riggs, custom tools)
 - [Integration](integration.md) — how kibitzer works with blq, jetsam, fledgling, and superpowers
 
 ## Design principles

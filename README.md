@@ -127,6 +127,28 @@ mode = "suggest"
 frequency = 3
 ```
 
+## Python API
+
+Use kibitzer from Python without the hook protocol:
+
+```python
+from kibitzer import KibitzerSession
+
+with KibitzerSession(project_dir=".") as session:
+    # Check if a tool call is allowed
+    result = session.before_call("Edit", {"file_path": "src/auth.py"})
+
+    # Record a completed tool call
+    session.after_call("Edit", {"file_path": "src/auth.py"}, success=True)
+
+    # Batch-validate a program's planned calls
+    violations = session.validate_calls([
+        {"tool": "Edit", "input": {"file_path": "tests/foo.py"}},
+    ])
+```
+
+Full API docs at [kibitzer.readthedocs.io/python-api](https://kibitzer.readthedocs.io/python-api/).
+
 ## Coordinates with
 
 Kibitzer suggests but never wraps these tools — each is independent:
