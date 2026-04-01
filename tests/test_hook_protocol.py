@@ -335,7 +335,7 @@ class TestPreToolUseAbsolutePaths:
 class TestPreToolUseBashInterception:
     """Bash command interception in different plugin modes."""
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_git_commit_suggest_mode(self, mock_registry, project):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]
@@ -350,7 +350,7 @@ class TestPreToolUseBashInterception:
         assert "jetsam save" in output["additionalContext"]
         assert "permissionDecision" not in output  # suggest, not deny
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_git_commit_redirect_mode(self, mock_registry, project):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]
@@ -364,7 +364,7 @@ class TestPreToolUseBashInterception:
         assert output["permissionDecision"] == "deny"
         assert "jetsam save" in output["permissionDecisionReason"]
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_git_commit_observe_mode_logs(self, mock_registry, project):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]
@@ -382,7 +382,7 @@ class TestPreToolUseBashInterception:
         assert entry["plugin"] == "jetsam"
         assert "jetsam save" in entry["suggested_tool"]
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_pytest_suggest_blq(self, mock_registry, project):
         from kibitzer.interceptors.blq import BlqInterceptor
         mock_registry.return_value = [BlqInterceptor()]
@@ -394,7 +394,7 @@ class TestPreToolUseBashInterception:
         assert result is not None
         assert "blq run test" in result["hookSpecificOutput"]["additionalContext"]
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_grep_for_def_suggest_fledgling(self, mock_registry, project):
         from kibitzer.interceptors.fledgling import FledglingInterceptor
         mock_registry.return_value = [FledglingInterceptor()]
@@ -406,7 +406,7 @@ class TestPreToolUseBashInterception:
         assert result is not None
         assert "FindDefinitions" in result["hookSpecificOutput"]["additionalContext"]
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_non_matching_bash_passes(self, mock_registry, project):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         from kibitzer.interceptors.blq import BlqInterceptor
@@ -418,7 +418,7 @@ class TestPreToolUseBashInterception:
         )
         assert result is None
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_empty_command_passes(self, mock_registry, project):
         mock_registry.return_value = []
         hook = _pre_hook("Bash", {"command": ""})
@@ -798,7 +798,7 @@ class TestPreToolUseOutputFormat:
         parsed = json.loads(json_str)
         assert parsed == result
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_suggest_output_has_required_fields(self, mock_registry, project):
         from kibitzer.interceptors.blq import BlqInterceptor
         mock_registry.return_value = [BlqInterceptor()]

@@ -51,7 +51,7 @@ class TestPreToolUsePathGuard:
 
 
 class TestPreToolUseInterceptor:
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_suggest_mode_injects_context(self, mock_registry, implement_state):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]
@@ -67,7 +67,7 @@ class TestPreToolUseInterceptor:
         assert "additionalContext" in result["hookSpecificOutput"]
         assert "jetsam" in result["hookSpecificOutput"]["additionalContext"]
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_observe_mode_returns_none(self, mock_registry, implement_state):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]
@@ -81,7 +81,7 @@ class TestPreToolUseInterceptor:
         )
         assert result is None
 
-    @patch("kibitzer.hooks.pre_tool_use.build_registry")
+    @patch("kibitzer.session.build_registry")
     def test_no_match_allows(self, mock_registry, implement_state):
         from kibitzer.interceptors.jetsam import JetsamInterceptor
         mock_registry.return_value = [JetsamInterceptor()]

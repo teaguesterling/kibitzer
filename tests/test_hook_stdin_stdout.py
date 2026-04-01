@@ -430,7 +430,7 @@ class TestInterceptLogRoundTrip:
         from kibitzer.mcp.server import get_feedback
 
         # Run a few bash commands through observe mode
-        with patch("kibitzer.hooks.pre_tool_use.build_registry", return_value=[JetsamInterceptor()]):
+        with patch("kibitzer.session.build_registry", return_value=[JetsamInterceptor()]):
             for cmd in [
                 "git add -A && git commit -m 'fix'",
                 "git push origin main",
@@ -482,7 +482,7 @@ class TestInterceptLogRoundTrip:
 
         long_cmd = "pytest " + "a" * 300
 
-        with patch("kibitzer.hooks.pre_tool_use.build_registry", return_value=[BlqInterceptor()]):
+        with patch("kibitzer.session.build_registry", return_value=[BlqInterceptor()]):
             handle_pre_tool_use(
                 {"tool_name": "Bash", "tool_input": {"command": long_cmd}},
                 project_dir=project,

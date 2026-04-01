@@ -1,135 +1,47 @@
-"""PreToolUse hook entry point. Chains path guard + interceptors."""
+"""PreToolUse hook — thin wrapper around KibitzerSession."""
 
 from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
-from typing import Any, Optional
 
-from kibitzer.config import load_config, get_mode_policy
-from kibitzer.guards.path_guard import check_path
-from kibitzer.interceptors.base import InterceptMode
-from kibitzer.interceptors.registry import build_registry
-from kibitzer.state import load_state
-
-_WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
-_INTERCEPT_TOOLS = {"Bash"}
-_LOG_FILE = ".kibitzer/intercept.log"
-
-
-def handle_pre_tool_use(
-    hook_input: dict[str, Any],
-    project_dir: Path | None = None,
-    plugin_modes: dict[str, str] | None = None,
-) -> Optional[dict]:
-    """Process a PreToolUse hook call. Returns response dict or None (allow)."""
-    if project_dir is None:
-        project_dir = Path.cwd()
-
-    tool_name = hook_input.get("tool_name", "")
-    tool_input = hook_input.get("tool_input", {})
-
-    config = load_config(project_dir)
-    state_dir = project_dir / ".kibitzer"
-    state = load_state(state_dir)
-    mode = state.get("mode", config["controller"].get("default_mode", "implement"))
-    mode_policy = get_mode_policy(config, mode)
-
-    # 1. Path guard for write tools
-    if tool_name in _WRITE_TOOLS:
-        # Claude Code sends file_path for Edit/Write, notebook_path for NotebookEdit
-        file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-        if file_path:
-            # Relativize absolute paths to project dir for prefix matching
-            try:
-                fp = Path(file_path)
-                if fp.is_absolute():
-                    file_path = str(fp.relative_to(project_dir))
-            except (ValueError, TypeError):
-                pass  # not under project_dir — check as-is
-            result = check_path(file_path, mode_policy)
-            if not result.allowed:
-                return {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": result.reason,
-                    }
-                }
-
-    # 2. Interceptors for Bash
-    if tool_name in _INTERCEPT_TOOLS:
-        command = tool_input.get("command", "")
-        if command:
-            if plugin_modes is None:
-                plugin_modes = {}
-                for name, pcfg in config.get("plugins", {}).items():
-                    if pcfg.get("enabled", True):
-                        plugin_modes[name] = pcfg.get("mode", "observe")
-
-            plugins = build_registry()
-            for plugin in plugins:
-                if plugin.name not in plugin_modes:
-                    continue  # plugin disabled in config
-                suggestion = plugin.check(command)
-                if suggestion is None:
-                    continue
-
-                pmode = InterceptMode(plugin_modes.get(plugin.name, "observe"))
-
-                if pmode == InterceptMode.OBSERVE:
-                    _log_intercept(project_dir, command, suggestion)
-                    return None
-
-                if pmode == InterceptMode.SUGGEST:
-                    return {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "additionalContext": (
-                                f"[kibitzer] {suggestion.plugin} suggests: "
-                                f"{suggestion.tool}\n"
-                                f"Reason: {suggestion.reason}"
-                            ),
-                        }
-                    }
-
-                if pmode == InterceptMode.REDIRECT:
-                    return {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": (
-                                f"A structured alternative is available: "
-                                f"{suggestion.tool}\n{suggestion.reason}"
-                            ),
-                        }
-                    }
-
-    return None
-
-
-def _log_intercept(project_dir: Path, command: str, suggestion) -> None:
-    log_path = project_dir / _LOG_FILE
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    entry = {
-        "bash_command": command[:200],
-        "suggested_tool": suggestion.tool,
-        "reason": suggestion.reason,
-        "plugin": suggestion.plugin,
-    }
-    with open(log_path, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+from kibitzer.session import KibitzerSession
 
 
 def main() -> None:
     try:
         hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, OSError):
-        return  # bad input — exit silently
-    result = handle_pre_tool_use(hook_input)
+        return
+
+    with KibitzerSession(safe_mode=True) as session:
+        result = session.before_call(
+            tool_name=hook_input.get("tool_name", ""),
+            tool_input=hook_input.get("tool_input", {}),
+        )
+
     if result is not None:
-        print(json.dumps(result))
+        output = result.to_hook_output("PreToolUse")
+        if output:
+            print(json.dumps(output))
+
+
+# Backwards-compatible wrapper for existing tests
+def handle_pre_tool_use(hook_input, project_dir=None, plugin_modes=None):
+    """Compatibility wrapper — delegates to KibitzerSession."""
+    session = KibitzerSession(project_dir=project_dir)
+    session.load()
+    if plugin_modes is not None:
+        for name, mode in plugin_modes.items():
+            session._config.setdefault("plugins", {}).setdefault(name, {})["mode"] = mode
+    result = session.before_call(
+        hook_input.get("tool_name", ""),
+        hook_input.get("tool_input", {}),
+    )
+    session.save()
+    if result is None:
+        return None
+    return result.to_hook_output("PreToolUse") or None
 
 
 if __name__ == "__main__":
