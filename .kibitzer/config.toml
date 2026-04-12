@@ -7,7 +7,7 @@ writable = ["*"]
 strategy = "Scaffold structure before filling in details."
 
 [modes.implement]
-writable = ["src/", "lib/"]
+writable = ["src/", "lib/", "tests/", "pyproject.toml"]
 strategy = ""
 
 [modes.test_dev]
