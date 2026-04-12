@@ -10,7 +10,7 @@ from typing import Any
 from kibitzer.coach.suggestions import generate_suggestions, should_fire
 from kibitzer.coach.tools import discover_tools
 from kibitzer.config import get_mode_policy, load_config
-from kibitzer.failure_modes import HINT_MAP as _FAILURE_HINT_MAP
+from kibitzer.failure_modes import HINT_MAP as _FAILURE_HINT_MAP, MAX_ESCALATION
 from kibitzer.controller.mode_controller import (
     apply_transition,
     check_transitions,
@@ -483,6 +483,72 @@ class KibitzerSession:
                 })
 
         return hints
+
+    def get_correction_hints(
+        self,
+        failure_mode: str,
+        model: str | None = None,
+        attempt: int = 1,
+    ) -> dict[str, Any]:
+        """Return correction signal for a failed generation.
+
+        Returns structured data — not prompt text. Lackpy's correction
+        chain decides how to turn this into prompt language.
+
+        Args:
+            failure_mode: The classified failure (from failure_modes taxonomy).
+            model: The model that failed (for historical pattern lookup).
+            attempt: Which correction attempt this is (1 = first retry).
+
+        Returns:
+            Signal dict:
+                {
+                    "failure_mode": str,
+                    "known": bool,           # recognized in taxonomy
+                    "attempt": int,
+                    "escalation_level": int,  # 1=normal, 2=simplify, 3=minimal
+                    "history": {              # omitted if no model or no history
+                        "count": int,         # times this model hit this mode
+                        "total": int,         # total generations in window
+                    } | None,
+                }
+        """
+        from kibitzer.failure_modes import ALL_MODES
+
+        clamped = min(attempt, MAX_ESCALATION)
+
+        result: dict[str, Any] = {
+            "failure_mode": failure_mode,
+            "known": failure_mode in ALL_MODES,
+            "attempt": attempt,
+            "escalation_level": clamped,
+            "history": None,
+        }
+
+        if model:
+            patterns = self.get_failure_patterns(model=model, window=20)
+            for pattern in patterns:
+                if pattern["pattern"] == failure_mode:
+                    # Count total generations for this model in the window
+                    total = 0
+                    if self._store:
+                        events = self._store.query_events(
+                            event_type="generation", limit=20,
+                        )
+                        for e in events:
+                            try:
+                                d = json.loads(e.get("data", "{}"))
+                                if d.get("model") == model:
+                                    total += 1
+                            except (json.JSONDecodeError, TypeError):
+                                continue
+                    result["history"] = {
+                        "count": pattern["count"],
+                        "total": total,
+                    }
+                    break
+
+        return result
 
     def get_mode_policy(self) -> dict[str, Any]:
         """Expose current mode constraints for grade-aware tool selection."""

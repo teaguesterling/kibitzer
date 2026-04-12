@@ -52,6 +52,13 @@ ALL_MODES = frozenset({
 
 # Mapping from failure mode to structured prompt hint.
 # Each entry produces a hint dict returned by get_prompt_hints().
+# Maximum escalation level. Correction attempts beyond this clamp to MAX.
+# Lackpy decides what each level means in prompt terms.
+MAX_ESCALATION = 3
+
+
+# Mapping from failure mode to structured prompt hint.
+# Each entry produces a hint dict returned by get_prompt_hints().
 HINT_MAP: dict[str, dict[str, str]] = {
     IMPLEMENT_NOT_ORCHESTRATE: {
         "type": "negative_constraint",

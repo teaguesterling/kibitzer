@@ -307,6 +307,82 @@ class TestGetPromptHints:
                 )
 
 
+class TestGetCorrectionHints:
+    """get_correction_hints returns signal, not prompt text."""
+
+    def _seed_generations(self, session, reports):
+        for report in reports:
+            session.report_generation(report)
+
+    def test_returns_signal_dict(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            signal = session.get_correction_hints(failure_mode="stdlib_leak")
+            assert signal["failure_mode"] == "stdlib_leak"
+            assert signal["known"] is True
+            assert signal["attempt"] == 1
+            assert signal["escalation_level"] == 1
+            assert signal["history"] is None
+
+    def test_unknown_mode_marked_not_known(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            signal = session.get_correction_hints(failure_mode="some_new_thing")
+            assert signal["known"] is False
+
+    def test_escalation_level_tracks_attempt(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            s1 = session.get_correction_hints(failure_mode="stdlib_leak", attempt=1)
+            s2 = session.get_correction_hints(failure_mode="stdlib_leak", attempt=2)
+            s3 = session.get_correction_hints(failure_mode="stdlib_leak", attempt=3)
+            assert s1["escalation_level"] == 1
+            assert s2["escalation_level"] == 2
+            assert s3["escalation_level"] == 3
+
+    def test_escalation_clamps_at_max(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            s10 = session.get_correction_hints(failure_mode="stdlib_leak", attempt=10)
+            assert s10["escalation_level"] == 3
+            assert s10["attempt"] == 10
+
+    def test_history_populated_from_store(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            self._seed_generations(session, [
+                {"failure_mode": "stdlib_leak", "model": "qwen:3b",
+                 "success": False, "intent": "a"},
+                {"failure_mode": "stdlib_leak", "model": "qwen:3b",
+                 "success": False, "intent": "b"},
+                {"model": "qwen:3b", "success": True, "intent": "c"},
+            ])
+            signal = session.get_correction_hints(
+                failure_mode="stdlib_leak", model="qwen:3b",
+            )
+            assert signal["history"] is not None
+            assert signal["history"]["count"] == 2
+            assert signal["history"]["total"] == 3
+
+    def test_no_history_without_model(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            self._seed_generations(session, [
+                {"failure_mode": "stdlib_leak", "model": "qwen:3b",
+                 "success": False, "intent": "a"},
+            ])
+            signal = session.get_correction_hints(failure_mode="stdlib_leak")
+            assert signal["history"] is None
+
+    def test_no_history_when_mode_not_seen(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            signal = session.get_correction_hints(
+                failure_mode="stdlib_leak", model="qwen:3b",
+            )
+            assert signal["history"] is None
+
+
 class TestGetModePolicy:
     def test_returns_current_mode_info(self, tmp_path):
         proj = _project(tmp_path)
