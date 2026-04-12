@@ -350,13 +350,175 @@ class KibitzerSession:
         self._context = context
 
     def report_generation(self, report: dict[str, Any]) -> None:
-        """Record a lackpy generation outcome in the event log."""
+        """Record a lackpy generation outcome in the event log.
+
+        Expected fields (all optional, but richer reports enable better hints):
+            intent, program, provider, correction_attempts, success,
+            failure_mode, model, interpreter, prompt_variant
+        """
         if self._store:
             self._store.append_event(
                 event_type="generation",
                 session_id=self._state.get("session_id"),
+                tool_name=report.get("model"),
+                success=report.get("success"),
                 data=json.dumps(report),
             )
+
+    def get_failure_patterns(
+        self,
+        model: str | None = None,
+        window: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Aggregate failure modes from recent generation events.
+
+        Returns list of dicts sorted by count descending:
+            [{"pattern": str, "model": str, "count": int, "last_seen": str,
+              "sample_intent": str}, ...]
+        """
+        if not self._store:
+            return []
+
+        events = self._store.query_events(event_type="generation", limit=window)
+        # Aggregate failure_mode from the data JSON
+        pattern_counts: dict[tuple[str, str], dict[str, Any]] = {}
+        for event in events:
+            data_str = event.get("data", "")
+            if not data_str:
+                continue
+            try:
+                data = json.loads(data_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            failure_mode = data.get("failure_mode")
+            if not failure_mode:
+                continue
+
+            event_model = data.get("model", "unknown")
+            if model is not None and event_model != model:
+                continue
+
+            key = (failure_mode, event_model)
+            if key not in pattern_counts:
+                pattern_counts[key] = {
+                    "pattern": failure_mode,
+                    "model": event_model,
+                    "count": 0,
+                    "last_seen": event.get("timestamp", ""),
+                    "sample_intent": data.get("intent", ""),
+                }
+            pattern_counts[key]["count"] += 1
+            # Keep the most recent timestamp
+            ts = event.get("timestamp", "")
+            if ts > pattern_counts[key]["last_seen"]:
+                pattern_counts[key]["last_seen"] = ts
+
+        result = sorted(
+            pattern_counts.values(), key=lambda x: x["count"], reverse=True,
+        )
+        return result
+
+    # Known failure modes and their prompt hint mappings
+    _FAILURE_HINT_MAP: dict[str, dict[str, str]] = {
+        "implement_not_orchestrate": {
+            "type": "negative_constraint",
+            "content": (
+                "Do NOT define functions or implement logic — "
+                "call the pre-loaded tools directly"
+            ),
+        },
+        "stdlib_leak": {
+            "type": "negative_constraint",
+            "content": "Do NOT use open() — call read_file() instead",
+        },
+        "path_prefix": {
+            "type": "negative_constraint",
+            "content": (
+                "Use bare filenames (e.g. 'app.py'), "
+                "not prefixed paths (e.g. 'project/app.py')"
+            ),
+        },
+    }
+
+    def get_prompt_hints(
+        self,
+        model: str | None = None,
+        window: int = 50,
+        min_confidence: float = 0.3,
+    ) -> list[dict[str, Any]]:
+        """Return structured prompt hints derived from observed failure patterns.
+
+        Returns list of hint dicts:
+            [{"type": "negative_constraint"|"positive_example",
+              "content": str,
+              "confidence": float,   # fraction of recent generations with this failure
+              "source": str}, ...]
+        """
+        patterns = self.get_failure_patterns(model=model, window=window)
+        if not patterns:
+            return []
+
+        # Count total generations in window for confidence calculation
+        total_generations = 0
+        if self._store:
+            events = self._store.query_events(
+                event_type="generation", limit=window,
+            )
+            if model:
+                for e in events:
+                    try:
+                        d = json.loads(e.get("data", "{}"))
+                        if d.get("model") == model:
+                            total_generations += 1
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            else:
+                total_generations = len(events)
+
+        if total_generations == 0:
+            return []
+
+        hints = []
+        for pattern in patterns:
+            confidence = pattern["count"] / total_generations
+            if confidence < min_confidence:
+                continue
+
+            # Use known hint mapping if available, else generate generic hint
+            known = self._FAILURE_HINT_MAP.get(pattern["pattern"])
+            if known:
+                hints.append({
+                    "type": known["type"],
+                    "content": known["content"],
+                    "confidence": round(confidence, 2),
+                    "source": f"failure_pattern:{pattern['pattern']}",
+                })
+            else:
+                # Generic hint for unknown failure modes
+                hints.append({
+                    "type": "negative_constraint",
+                    "content": f"Avoid: {pattern['pattern'].replace('_', ' ')}",
+                    "confidence": round(confidence, 2),
+                    "source": f"failure_pattern:{pattern['pattern']}",
+                })
+
+        return hints
+
+    def get_mode_policy(self) -> dict[str, Any]:
+        """Expose current mode constraints for grade-aware tool selection."""
+        policy = get_mode_policy(self._config, self.mode)
+        result: dict[str, Any] = {
+            "mode": self.mode,
+            "writable": policy.get("writable", []),
+            "strategy": policy.get("strategy", ""),
+        }
+        # Include grade ceiling if configured
+        if "max_grade_w" in policy:
+            result["max_grade_w"] = policy["max_grade_w"]
+        if "max_grade_d" in policy:
+            result["max_grade_d"] = policy["max_grade_d"]
+        return result
 
     # --- Internal ---
 
