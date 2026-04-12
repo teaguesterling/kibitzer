@@ -10,6 +10,7 @@ from typing import Any
 from kibitzer.coach.suggestions import generate_suggestions, should_fire
 from kibitzer.coach.tools import discover_tools
 from kibitzer.config import get_mode_policy, load_config
+from kibitzer.failure_modes import HINT_MAP as _FAILURE_HINT_MAP
 from kibitzer.controller.mode_controller import (
     apply_transition,
     check_transitions,
@@ -419,28 +420,6 @@ class KibitzerSession:
         )
         return result
 
-    # Known failure modes and their prompt hint mappings
-    _FAILURE_HINT_MAP: dict[str, dict[str, str]] = {
-        "implement_not_orchestrate": {
-            "type": "negative_constraint",
-            "content": (
-                "Do NOT define functions or implement logic — "
-                "call the pre-loaded tools directly"
-            ),
-        },
-        "stdlib_leak": {
-            "type": "negative_constraint",
-            "content": "Do NOT use open() — call read_file() instead",
-        },
-        "path_prefix": {
-            "type": "negative_constraint",
-            "content": (
-                "Use bare filenames (e.g. 'app.py'), "
-                "not prefixed paths (e.g. 'project/app.py')"
-            ),
-        },
-    }
-
     def get_prompt_hints(
         self,
         model: str | None = None,
@@ -486,7 +465,7 @@ class KibitzerSession:
                 continue
 
             # Use known hint mapping if available, else generate generic hint
-            known = self._FAILURE_HINT_MAP.get(pattern["pattern"])
+            known = _FAILURE_HINT_MAP.get(pattern["pattern"])
             if known:
                 hints.append({
                     "type": known["type"],

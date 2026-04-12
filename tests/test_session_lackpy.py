@@ -287,6 +287,25 @@ class TestGetPromptHints:
             assert len(hints) == 1
             assert "call the pre-loaded tools" in hints[0]["content"]
 
+    def test_all_known_modes_produce_hints(self, tmp_path):
+        """Every failure mode in the taxonomy should produce a typed hint."""
+        from kibitzer.failure_modes import ALL_MODES
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            for mode in ALL_MODES:
+                self._seed_generations(session, [
+                    {"failure_mode": mode, "model": "test-model",
+                     "success": False, "intent": f"test {mode}"},
+                    {"failure_mode": mode, "model": "test-model",
+                     "success": False, "intent": f"test {mode} again"},
+                ])
+            hints = session.get_prompt_hints(model="test-model", min_confidence=0.0)
+            hint_sources = {h["source"] for h in hints}
+            for mode in ALL_MODES:
+                assert f"failure_pattern:{mode}" in hint_sources, (
+                    f"No hint generated for {mode}"
+                )
+
 
 class TestGetModePolicy:
     def test_returns_current_mode_info(self, tmp_path):
