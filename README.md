@@ -96,6 +96,17 @@ The mode controller watches for failure patterns:
 
 An oscillation guard prevents rapid switching: if the agent just left a mode (< 5 turns), it won't auto-switch back. After 6+ total switches, auto-transitions stop.
 
+## Composes with Claude Code's permission model
+
+The Claude Code harness has its own permission system (per-tool allow/deny, prompting before sensitive actions). Kibitzer's modes layer *on top of* these permissions — not beside them. The two regulate at different granularities:
+
+- **Harness permissions**: coarse, universal, set at install — "can this agent ever call Bash?"
+- **Kibitzer modes**: fine, contextual, changed per task — "is Bash appropriate given the current mode?"
+
+They compose via set intersection: a tool call succeeds iff the harness permits it AND (if kibitzer is active) the current mode permits it. Kibitzer can narrow the harness's permissions; it can never widen them.
+
+When a call is denied, the response identifies which layer denied it so the agent can respond correctly — switching modes (kibitzer) or asking the user to grant permission (harness) are different remedies.
+
 ## MCP tools
 
 The agent can call two tools explicitly:
