@@ -175,6 +175,48 @@ pip install kibitzer[fledgling]   # + fledgling Python API for richer coaching
 
 The coach discovers available tools by reading `.mcp.json` in the project root. If fledgling, blq, or jetsam are registered as MCP servers, the coach references their specific tools in suggestions. Without `.mcp.json`, it falls back to checking CLI availability via `which`.
 
+## umwelt / ducklog integration (optional)
+
+Kibitzer can read mode definitions and tool surfaces from an [umwelt](https://github.com/teaguesterling/umwelt) policy database compiled by [ducklog](https://github.com/teaguesterling/ducklog). This lets you author policy in umwelt's CSS-shaped `.umw` format and have kibitzer consume it automatically.
+
+### Setup
+
+```bash
+pip install ducklog  # optional dependency
+
+# Author a policy
+cat > policy.umw << 'EOF'
+mode.implement tool { allow: true; }
+mode.explore tool { allow: false; }
+mode.explore tool[name="Read"] { allow: true; }
+mode.explore tool[name="Grep"] { allow: true; }
+EOF
+
+# Compile to a policy database
+umwelt compile --target duckdb -o .kibitzer/policy.duckdb policy.umw
+```
+
+### How it works
+
+When `.kibitzer/policy.duckdb` exists, `load_config()` merges its mode definitions on top of the TOML config:
+
+1. Package defaults (`config.toml`) load first
+2. Project-local `.kibitzer/config.toml` overrides (if present)
+3. `.kibitzer/policy.duckdb` overrides (if present and ducklog is installed)
+
+ducklog-defined modes override TOML modes of the same name. New modes (e.g., `deploy`) from the database are added. Modes only in TOML (not in the database) are preserved.
+
+### What the database provides
+
+- **Mode definitions** — writable paths and strategy text per mode
+- **Tool surfaces** — per-mode allow/deny lists (which tools are available in which mode)
+
+These appear in the config dict alongside TOML-defined values. `get_mode_policy()` and `check_path()` work unchanged.
+
+### Without ducklog
+
+If ducklog is not installed, the fallback is invisible — kibitzer loads from TOML only, no error, no warning. ducklog is a soft optional dependency.
+
 ## Resilience
 
 Both `state.json` and project `config.toml` are loaded defensively:
