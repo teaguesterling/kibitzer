@@ -15,6 +15,10 @@ All of kibitzer's logic lives in `KibitzerSession`. Hooks, MCP server, and exter
                     │  get_feedback()       │
                     │  register_tools()     │
                     │  validate_program()   │
+                    │  register_docs()      │
+                    │  get_doc_context()    │
+                    │  get_prompt_hints()   │
+                    │  get_correction_hints()│
                     └───────────┬───────────┘
                                 │
            ┌────────────────────┼────────────────────┐
@@ -129,6 +133,8 @@ The MCP server runs as a persistent process (via `kibitzer serve`). It provides 
 ```
 src/kibitzer/
 ├── session.py             KibitzerSession + CallResult — the Python API
+├── docs.py                DocSection, DocResult, DocRefinement — doc pipeline types
+├── failure_modes.py       Shared failure mode taxonomy (7 modes + hint map)
 ├── store.py               KibitzerStore — SQLite event log (append, query)
 ├── config.py              Loads config.toml (defaults + project-local merge)
 ├── state.py               Reads/writes .kibitzer/state.json

@@ -16,6 +16,7 @@ Kibitzer coordinates three existing tools and integrates with the superpowers pl
 | JetsamInterceptor | jetsam on PATH |
 | FledglingInterceptor | fledgling on PATH |
 | Coach (semantic underuse) | fledgling available to the agent |
+| Doc context pipeline | pluckit Python package |
 
 ## blq
 
@@ -78,6 +79,34 @@ All queries have a 5-second timeout. If fledgling is unavailable or a query fail
 
 **Future:** Kit effectiveness tracking (which tools were used vs. available in the current kit).
 
+## Pluckit
+
+[Pluckit](https://github.com/teague/pluckit) provides structured access to markdown documentation — glob-based doc discovery, ILIKE search, and section extraction.
+
+**What kibitzer uses from pluckit:**
+- `Plucker(docs=glob).docs()` — discover and load markdown files
+- `.filter(search=term, file_path=path)` — ILIKE substring matching
+- `.sections()` — extract structured sections (title, content, file_path, level)
+
+**How it's used:**
+
+Kibitzer's `get_doc_context()` pipeline uses pluckit for the mechanical retrieval step. Tool documentation paths are registered via `register_docs()` (typically from lackpy's tool catalog `docs_index`), and pluckit searches within those docs for sections relevant to the current failure or error.
+
+```python
+session.register_docs(
+    doc_refs={"Read": "tools/read.md", "Edit": "tools/edit.md"},
+    docs_root="/path/to/docs",
+)
+result = session.get_doc_context("permission denied", tool="Edit")
+```
+
+Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Without pluckit, `get_doc_context()` returns an empty `DocResult` — no degradation of existing behavior.
+
+**What kibitzer does NOT do:**
+- Does not index docs at storage time (retrieval is on-demand)
+- Does not provide FTS/semantic search (uses pluckit's ILIKE with multi-word fallback)
+- Does not decide which sections matter — that's the consumer's `select` callback
+
 ## Superpowers
 
 The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/tree/main/superpowers) manages workflow phases (brainstorm → plan → implement → review) through skill invocations. Kibitzer manages tool constraints (what can be written where).
@@ -105,19 +134,20 @@ The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/t
 ## Integration architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    KIBITZER (level 1)                     │
-│  Hooks: path guard, interceptors, mode controller, coach │
-│  MCP: ChangeToolMode, GetFeedback                        │
-└──────────────┬──────────────┬──────────────┬─────────────┘
-               │              │              │
-        ┌──────┴──────┐ ┌────┴──────┐ ┌─────┴─────┐
-        │     blq     │ │  jetsam   │ │ fledgling  │
-        │  (level 1)  │ │ (level 1) │ │ (level 0)  │
-        │             │ │           │ │            │
-        │ test capture│ │ git       │ │ code       │
-        │ sandbox     │ │ workflow  │ │ intelligence│
-        └─────────────┘ └───────────┘ └────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       KIBITZER (level 1)                         │
+│  Hooks: path guard, interceptors, mode controller, coach         │
+│  MCP: ChangeToolMode, GetFeedback                                │
+│  API: register_docs, get_doc_context, get_correction_hints, ...  │
+└──────┬──────────────┬──────────────┬──────────────┬──────────────┘
+       │              │              │              │
+ ┌─────┴─────┐ ┌─────┴─────┐ ┌─────┴──────┐ ┌────┴──────┐
+ │    blq    │ │  jetsam   │ │  fledgling  │ │  pluckit  │
+ │ (level 1) │ │ (level 1) │ │  (level 0)  │ │ (level 0) │
+ │           │ │           │ │             │ │           │
+ │ test      │ │ git       │ │ code        │ │ doc       │
+ │ capture   │ │ workflow  │ │ intelligence│ │ retrieval │
+ └───────────┘ └───────────┘ └─────────────┘ └───────────┘
 ```
 
-Each tool is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion.
+Each tool is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion. Pluckit is the one exception — kibitzer calls it directly for doc retrieval, but only when the consumer has registered docs.
