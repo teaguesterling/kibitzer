@@ -694,7 +694,8 @@ class TestPostToolUseModeTransitions:
 class TestPostToolUseCoach:
     """Coach fires at frequency intervals and generates suggestions."""
 
-    def test_coach_suggests_tests_after_edit_streak(self, project_in_mode):
+    @patch("kibitzer.coach.fledgling.is_available", return_value=False)
+    def test_coach_suggests_tests_after_edit_streak(self, _mock_fl, project_in_mode):
         proj = project_in_mode("implement", total_calls=4, tools_used_in_mode={"Edit": 4})
 
         result = handle_post_tool_use(

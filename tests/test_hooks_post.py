@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 from kibitzer.hooks.post_tool_use import handle_post_tool_use
 from kibitzer.state import fresh_state, save_state, load_state
 
@@ -57,7 +58,8 @@ class TestPostToolUseModeTransition:
 
 
 class TestPostToolUseCoach:
-    def test_coach_fires_at_frequency(self, implement_project):
+    @patch("kibitzer.coach.fledgling.is_available", return_value=False)
+    def test_coach_fires_at_frequency(self, _mock_fl, implement_project):
         state = fresh_state()
         state["mode"] = "implement"
         state["total_calls"] = 4

@@ -23,18 +23,21 @@ from kibitzer.state import fresh_state
 # ===========================================================================
 
 class TestFledglingAvailability:
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
     @patch("kibitzer.coach.fledgling.shutil.which", return_value=None)
-    def test_not_available_when_not_installed(self, mock_which):
+    def test_not_available_when_not_installed(self, mock_which, mock_api):
         assert fledgling.is_available() is False
 
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
     @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
     @patch("kibitzer.coach.fledgling._find_init", return_value=None)
-    def test_not_available_when_not_initialized(self, mock_init, mock_which):
+    def test_not_available_when_not_initialized(self, mock_init, mock_which, mock_api):
         assert fledgling.is_available() is False
 
+    @patch("kibitzer.coach.fledgling._has_python_api", return_value=False)
     @patch("kibitzer.coach.fledgling.shutil.which", return_value="/usr/bin/fledgling")
     @patch("kibitzer.coach.fledgling._find_init", return_value=Path("/tmp/init.sql"))
-    def test_available_when_installed_and_initialized(self, mock_init, mock_which):
+    def test_available_when_installed_and_initialized(self, mock_init, mock_which, mock_api):
         assert fledgling.is_available() is True
 
 
