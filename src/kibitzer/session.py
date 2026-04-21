@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from kibitzer.store import KibitzerStore
 _WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 _INTERCEPT_TOOLS = {"Bash"}
 _LOG_FILE = ".kibitzer/intercept.log"
+_UNSET = object()  # sentinel for "use session default"
 
 
 @dataclass
@@ -73,9 +75,11 @@ class KibitzerSession:
         self,
         project_dir: str | Path | None = None,
         safe_mode: bool = False,
+        namespace: str | None = None,
     ):
         self._project_dir = Path(project_dir) if project_dir else Path.cwd()
         self._safe_mode = safe_mode
+        self._namespace: str | None = namespace
         self._config: dict = {}
         self._state: dict = {}
         self._store: KibitzerStore | None = None
@@ -83,6 +87,7 @@ class KibitzerSession:
         self._available_tools: dict | None = None
         self._registered_tools: dict[str, tuple[int, int]] = {}
         self._context: dict[str, Any] = {}
+        self._doc_registry: dict[str | None, dict] = {}
         self._loaded = False
 
     def __enter__(self):
@@ -175,6 +180,35 @@ class KibitzerSession:
     @property
     def context(self) -> dict[str, Any]:
         return self._context
+
+    @property
+    def namespace(self) -> str | None:
+        return self._namespace
+
+    @property
+    def doc_refs(self) -> dict[str, str]:
+        ns = self._resolve_namespace()
+        entry = self._doc_registry.get(ns, {})
+        return entry.get("refs", {})
+
+    def doc_refs_for(self, namespace: str) -> dict[str, str]:
+        entry = self._doc_registry.get(namespace, {})
+        return entry.get("refs", {})
+
+    @contextmanager
+    def ns(self, namespace: str):
+        """Temporarily switch the session namespace."""
+        previous = self._namespace
+        self._namespace = namespace
+        try:
+            yield self
+        finally:
+            self._namespace = previous
+
+    def _resolve_namespace(self, explicit=_UNSET) -> str | None:
+        if explicit is not _UNSET:
+            return explicit
+        return self._namespace
 
     # --- Core API ---
 
@@ -350,13 +384,142 @@ class KibitzerSession:
         """Set task context for coach-aware suggestions."""
         self._context = context
 
-    def report_generation(self, report: dict[str, Any]) -> None:
+    def register_docs(
+        self,
+        doc_refs: dict[str, str | None],
+        docs_root: str | None = None,
+        namespace=_UNSET,
+        refinement=None,
+    ) -> None:
+        """Register tool documentation references for contextual search.
+
+        Args:
+            doc_refs: tool name -> relative doc path (from lackpy docs_index).
+            docs_root: Root directory to resolve relative paths.
+            namespace: Namespace to register under (defaults to session namespace).
+            refinement: Default DocRefinement for this namespace's docs.
+        """
+        ns = self._resolve_namespace(namespace)
+        self._doc_registry[ns] = {
+            "refs": {k: v for k, v in doc_refs.items() if v},
+            "root": docs_root,
+            "refinement": refinement,
+        }
+
+    def get_doc_context(
+        self,
+        query: str,
+        tool: str | None = None,
+        failure_mode: str | None = None,
+        namespace=_UNSET,
+        refinement=None,
+        limit: int = 5,
+    ):
+        """Search tool docs for context relevant to a query.
+
+        Uses pluckit for retrieval, then runs the refinement pipeline:
+            retrieve (pluckit) -> select (callback) -> present (callback)
+
+        Returns DocResult with matching sections, or empty if pluckit
+        unavailable or no docs registered.
+        """
+        from kibitzer.docs import DocResult
+
+        ns = self._resolve_namespace(namespace)
+        registry = self._doc_registry.get(ns)
+        if not registry:
+            return DocResult()
+
+        # Step 1: RETRIEVE (mechanical, pluckit)
+        candidates = self._retrieve_doc_sections(query, registry, tool=tool)
+
+        # Use registered refinement as default, allow override
+        effective_refinement = refinement or registry.get("refinement")
+
+        # Step 2: SELECT (callback or default top-N)
+        context = {
+            "query": query, "tool": tool,
+            "failure_mode": failure_mode, "namespace": ns,
+        }
+        if effective_refinement and effective_refinement.select:
+            try:
+                candidates = effective_refinement.select(candidates, context)
+            except Exception:
+                pass
+
+        candidates = candidates[:limit]
+
+        # Step 3: PRESENT (callback or raw)
+        if effective_refinement and effective_refinement.present:
+            try:
+                candidates = effective_refinement.present(candidates, context)
+            except Exception:
+                pass
+
+        return DocResult(sections=candidates)
+
+    def _retrieve_doc_sections(self, query, registry, tool=None):
+        from kibitzer.docs import DocSection
+        try:
+            from pluckit import Plucker
+        except ImportError:
+            return []
+
+        docs_root = registry.get("root")
+        if not docs_root:
+            return []
+
+        try:
+            p = Plucker(docs=f"{docs_root}/**/*.md")
+            docs = p.docs()
+
+            if tool:
+                doc_path = registry["refs"].get(tool)
+                if doc_path:
+                    docs = docs.filter(file_path=doc_path)
+
+            if query:
+                # ILIKE needs exact substring — search each word separately
+                # to handle multi-word queries like "read file"
+                words = query.split()
+                if len(words) == 1:
+                    docs = docs.filter(search=words[0])
+                else:
+                    # Try full query first, fall back to longest word
+                    full = docs.filter(search=query)
+                    if full.sections():
+                        docs = full
+                    else:
+                        longest = max(words, key=len)
+                        docs = docs.filter(search=longest)
+
+            raw_sections = docs.sections()
+        except Exception:
+            return []
+
+        return [
+            DocSection(
+                title=s.get("title", ""),
+                content=str(s.get("content", "")),
+                file_path=s.get("file_path", ""),
+                level=s.get("level", 1),
+                tool=tool,
+            )
+            for s in raw_sections
+        ]
+
+    def report_generation(
+        self, report: dict[str, Any], namespace=_UNSET,
+    ) -> None:
         """Record a lackpy generation outcome in the event log.
 
         Expected fields (all optional, but richer reports enable better hints):
             intent, program, provider, correction_attempts, success,
             failure_mode, model, interpreter, prompt_variant
         """
+        ns = self._resolve_namespace(namespace)
+        if ns is not None and "namespace" not in report:
+            report = {**report, "namespace": ns}
         if self._store:
             self._store.append_event(
                 event_type="generation",
@@ -370,6 +533,7 @@ class KibitzerSession:
         self,
         model: str | None = None,
         window: int = 50,
+        namespace=_UNSET,
     ) -> list[dict[str, Any]]:
         """Aggregate failure modes from recent generation events.
 
@@ -380,6 +544,7 @@ class KibitzerSession:
         if not self._store:
             return []
 
+        ns = self._resolve_namespace(namespace)
         events = self._store.query_events(event_type="generation", limit=window)
         # Aggregate failure_mode from the data JSON
         pattern_counts: dict[tuple[str, str], dict[str, Any]] = {}
@@ -390,6 +555,9 @@ class KibitzerSession:
             try:
                 data = json.loads(data_str)
             except (json.JSONDecodeError, TypeError):
+                continue
+
+            if ns is not None and data.get("namespace") != ns:
                 continue
 
             failure_mode = data.get("failure_mode")
@@ -425,6 +593,7 @@ class KibitzerSession:
         model: str | None = None,
         window: int = 50,
         min_confidence: float = 0.3,
+        namespace=_UNSET,
     ) -> list[dict[str, Any]]:
         """Return structured prompt hints derived from observed failure patterns.
 
@@ -434,7 +603,10 @@ class KibitzerSession:
               "confidence": float,   # fraction of recent generations with this failure
               "source": str}, ...]
         """
-        patterns = self.get_failure_patterns(model=model, window=window)
+        ns = self._resolve_namespace(namespace)
+        patterns = self.get_failure_patterns(
+            model=model, window=window, namespace=ns,
+        )
         if not patterns:
             return []
 
@@ -444,16 +616,16 @@ class KibitzerSession:
             events = self._store.query_events(
                 event_type="generation", limit=window,
             )
-            if model:
-                for e in events:
-                    try:
-                        d = json.loads(e.get("data", "{}"))
-                        if d.get("model") == model:
-                            total_generations += 1
-                    except (json.JSONDecodeError, TypeError):
+            for e in events:
+                try:
+                    d = json.loads(e.get("data", "{}"))
+                    if ns is not None and d.get("namespace") != ns:
                         continue
-            else:
-                total_generations = len(events)
+                    if model and d.get("model") != model:
+                        continue
+                    total_generations += 1
+                except (json.JSONDecodeError, TypeError):
+                    continue
 
         if total_generations == 0:
             return []
@@ -489,6 +661,8 @@ class KibitzerSession:
         failure_mode: str,
         model: str | None = None,
         attempt: int = 1,
+        tool: str | None = None,
+        namespace=_UNSET,
     ) -> dict[str, Any]:
         """Return correction signal for a failed generation.
 
@@ -499,22 +673,16 @@ class KibitzerSession:
             failure_mode: The classified failure (from failure_modes taxonomy).
             model: The model that failed (for historical pattern lookup).
             attempt: Which correction attempt this is (1 = first retry).
+            tool: The tool that was misused (for doc context lookup).
+            namespace: Namespace to scope pattern lookup and doc retrieval.
 
         Returns:
-            Signal dict:
-                {
-                    "failure_mode": str,
-                    "known": bool,           # recognized in taxonomy
-                    "attempt": int,
-                    "escalation_level": int,  # 1=normal, 2=simplify, 3=minimal
-                    "history": {              # omitted if no model or no history
-                        "count": int,         # times this model hit this mode
-                        "total": int,         # total generations in window
-                    } | None,
-                }
+            Signal dict with failure_mode, known, attempt, escalation_level,
+            history, and optionally doc_context.
         """
         from kibitzer.failure_modes import ALL_MODES
 
+        ns = self._resolve_namespace(namespace)
         clamped = min(attempt, MAX_ESCALATION)
 
         result: dict[str, Any] = {
@@ -526,10 +694,11 @@ class KibitzerSession:
         }
 
         if model:
-            patterns = self.get_failure_patterns(model=model, window=20)
+            patterns = self.get_failure_patterns(
+                model=model, window=20, namespace=ns,
+            )
             for pattern in patterns:
                 if pattern["pattern"] == failure_mode:
-                    # Count total generations for this model in the window
                     total = 0
                     if self._store:
                         events = self._store.query_events(
@@ -538,6 +707,8 @@ class KibitzerSession:
                         for e in events:
                             try:
                                 d = json.loads(e.get("data", "{}"))
+                                if ns is not None and d.get("namespace") != ns:
+                                    continue
                                 if d.get("model") == model:
                                     total += 1
                             except (json.JSONDecodeError, TypeError):
@@ -547,6 +718,27 @@ class KibitzerSession:
                         "total": total,
                     }
                     break
+
+        # Include doc context if docs are registered
+        effective_ns = ns if ns in self._doc_registry else None
+        if effective_ns in self._doc_registry:
+            try:
+                query = tool or failure_mode.replace("_", " ")
+                doc_result = self.get_doc_context(
+                    query=query,
+                    tool=tool,
+                    failure_mode=failure_mode,
+                    namespace=ns,
+                    limit=3,
+                )
+                if doc_result.sections:
+                    result["doc_context"] = [
+                        {"title": s.title, "content": s.content,
+                         "file": s.file_path}
+                        for s in doc_result.sections
+                    ]
+            except Exception:
+                pass
 
         return result
 
