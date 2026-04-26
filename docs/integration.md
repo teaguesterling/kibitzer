@@ -17,6 +17,7 @@ Kibitzer coordinates three existing tools, integrates with the superpowers plugi
 | FledglingInterceptor | fledgling on PATH |
 | Coach (semantic underuse) | fledgling available to the agent |
 | Doc context pipeline | pluckit Python package |
+| Doc context (Context7) | nothing — uses stdlib urllib (network access) |
 | Policy from umwelt | umwelt Python package + compiled `.kibitzer/policy.db` |
 
 ## blq
@@ -154,6 +155,40 @@ Install with `pip install kibitzer[umwelt]`. Without umwelt, kibitzer uses its b
 
 **Design note:** Kibitzer fills three umwelt roles simultaneously. As a **restrictor**, the `writable` property constrains which paths the path guard allows. As an **expander**, `strategy` and `coaching-frequency` control coaching behavior. As an **interactor**, `max-consecutive-failures` and `max-turns` govern mode controller thresholds. Policy authors can tune all of these per-mode in `.umw` stylesheets without touching kibitzer's code.
 
+## Context7
+
+[Context7](https://context7.com) provides up-to-date documentation for external libraries via a public REST API. Kibitzer queries it as a fallback when local docs (pluckit) have no results for a tool failure.
+
+**What kibitzer uses from Context7:**
+- `GET /v2/libs/search?query=...` — resolve a library name to a Context7 library ID
+- `GET /v2/context?libraryId=...&query=...&type=json` — fetch documentation sections
+
+**How it's used:**
+
+When a tool fails and no local docs match (or none are registered), kibitzer extracts a library name from the error message and queries Context7. Results are returned as `DocSection` objects, identical to pluckit results — downstream code doesn't know the source.
+
+```
+tool failure → extract error text → try local docs (pluckit)
+                                         │
+                                    no results?
+                                         │
+                              extract library name from error
+                              (last word first, skip uppercase)
+                                         │
+                              Context7: search → fetch → DocSections
+                                         │
+                              inject via PostToolUse additionalContext
+```
+
+Enabled by default. Disable with `docs.context7 = false` in `.kibitzer/config.toml`. All network calls have a 5-second timeout. No authentication required for read-only queries.
+
+**What kibitzer does NOT do:**
+- Does not cache Context7 results across calls (each query is fresh)
+- Does not write to Context7 (read-only public API)
+- Does not require network access — falls back silently on timeout or error
+
+**Relationship to the Context7 MCP plugin:** The agent may also have Context7 available as an MCP tool (`resolve-library-id`, `query-docs`). Kibitzer's integration is independent — it calls the REST API directly from Python, not through MCP. Both can coexist.
+
 ## Superpowers
 
 The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/tree/main/superpowers) manages workflow phases (brainstorm → plan → implement → review) through skill invocations. Kibitzer manages tool constraints (what can be written where).
@@ -192,17 +227,17 @@ The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/t
 ┌───────────────────────────────┴──────────────────────────────────┐
 │                       KIBITZER (level 1)                         │
 │  Hooks: path guard, interceptors, mode controller, coach         │
-│  MCP: ChangeToolMode, GetFeedback                                │
+│  MCP: ChangeToolMode, GetFeedback, GetDocContext                 │
 │  API: register_docs, get_doc_context, get_correction_hints, ...  │
 └──────┬──────────────┬──────────────┬──────────────┬──────────────┘
        │              │              │              │
- ┌─────┴─────┐ ┌─────┴─────┐ ┌─────┴──────┐ ┌────┴──────┐
- │    blq    │ │  jetsam   │ │  fledgling  │ │  pluckit  │
- │ (level 1) │ │ (level 1) │ │  (level 0)  │ │ (level 0) │
- │           │ │           │ │             │ │           │
- │ test      │ │ git       │ │ code        │ │ doc       │
- │ capture   │ │ workflow  │ │ intelligence│ │ retrieval │
- └───────────┘ └───────────┘ └─────────────┘ └───────────┘
+ ┌─────┴─────┐ ┌─────┴─────┐ ┌─────┴──────┐ ┌────┴──────┐ ┌───────────┐
+ │    blq    │ │  jetsam   │ │  fledgling  │ │  pluckit  │ │ context7  │
+ │ (level 1) │ │ (level 1) │ │  (level 0)  │ │ (level 0) │ │ (REST API)│
+ │           │ │           │ │             │ │           │ │           │
+ │ test      │ │ git       │ │ code        │ │ local doc │ │ external  │
+ │ capture   │ │ workflow  │ │ intelligence│ │ retrieval │ │ lib docs  │
+ └───────────┘ └───────────┘ └─────────────┘ └───────────┘ └───────────┘
 ```
 
-Umwelt sits above kibitzer — it provides the policy that kibitzer consumes. Each tool below is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion. Pluckit is the one exception — kibitzer calls it directly for doc retrieval, but only when the consumer has registered docs.
+Umwelt sits above kibitzer — it provides the policy that kibitzer consumes. Each tool below is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion. Pluckit and Context7 are exceptions — kibitzer calls pluckit directly for local doc retrieval, and Context7's REST API for external library docs. Both are fallback-safe.
