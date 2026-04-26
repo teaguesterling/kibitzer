@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kibitzer"
-version = "0.4.0"
+version = "0.5.0"
 description = "Claude Code extension that watches agent tool calls and suggests structured alternatives"
 readme = "README.md"
 license = "MIT"
