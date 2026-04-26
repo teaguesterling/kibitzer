@@ -5,11 +5,16 @@ bash hook scripts invoke. JSON in on stdin, JSON out on stdout (or silence).
 """
 
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+
 import pytest
 
 from kibitzer.state import fresh_state, save_state, load_state
+
+_SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 
 
 @pytest.fixture
@@ -39,6 +44,9 @@ def _run_hook(module: str, hook_input: dict, cwd: str) -> tuple[int, str, str]:
 
     Returns (exit_code, stdout, stderr).
     """
+    env = os.environ.copy()
+    python_path = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = _SRC_DIR + (os.pathsep + python_path if python_path else "")
     result = subprocess.run(
         [sys.executable, "-m", module],
         input=json.dumps(hook_input),
@@ -46,6 +54,7 @@ def _run_hook(module: str, hook_input: dict, cwd: str) -> tuple[int, str, str]:
         text=True,
         cwd=cwd,
         timeout=10,
+        env=env,
     )
     return result.returncode, result.stdout, result.stderr
 

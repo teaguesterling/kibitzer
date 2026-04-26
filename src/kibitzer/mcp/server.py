@@ -41,6 +41,27 @@ def get_feedback(status=True, suggestions=True, intercepts=True, project_dir=Non
     return session.get_feedback(status, suggestions, intercepts)
 
 
+def get_doc_context(query, tool=None, limit=5, project_dir=None):
+    """For direct Python callers and test compatibility."""
+    if project_dir is not None:
+        session = KibitzerSession(project_dir=project_dir)
+        session.load()
+    else:
+        session = _get_session()
+    result = session.get_doc_context(query=query, tool=tool, limit=limit)
+    return {
+        "sections": [
+            {
+                "title": s.title,
+                "content": s.content,
+                "file_path": s.file_path,
+                "tool": s.tool,
+            }
+            for s in result.sections
+        ],
+    }
+
+
 def create_mcp_server():
     from mcp.server.fastmcp import FastMCP
 
@@ -50,7 +71,9 @@ def create_mcp_server():
             "Kibitzer watches your tool calls and suggests structured alternatives. "
             "Use ChangeToolMode to switch between modes (free, implement, test, "
             "docs, explore, review). Use GetFeedback to check status, "
-            "get coaching suggestions, and see intercepted patterns."
+            "get coaching suggestions, and see intercepted patterns. "
+            "Use GetDocContext to search registered documentation when "
+            "you need help with a tool or error."
         ),
     )
 
@@ -73,6 +96,29 @@ def create_mcp_server():
     ) -> str:
         """Get kibitzer feedback: current status, coaching suggestions, and intercepted patterns."""
         result = get_feedback(status=status, suggestions=suggestions, intercepts=intercepts)
+        return json.dumps(result, indent=2)
+
+    @mcp.tool()
+    def GetDocContext(
+        query: str,
+        tool: str = "",
+        limit: int = 5,
+    ) -> str:
+        """Search registered documentation for sections relevant to a query.
+
+        Use when you need help with a tool's usage, options, or error
+        resolution. Returns matching doc sections ranked by relevance.
+
+        Args:
+            query: Search terms (error message, concept, or keyword)
+            tool: Filter to docs for a specific tool (Edit, Read, Bash, etc.)
+            limit: Max sections to return (default 5)
+        """
+        result = get_doc_context(
+            query=query, tool=tool or None, limit=limit,
+        )
+        if not result["sections"]:
+            return json.dumps({"message": "No matching documentation found.", "sections": []})
         return json.dumps(result, indent=2)
 
     return mcp

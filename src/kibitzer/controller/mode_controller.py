@@ -122,19 +122,34 @@ def should_transition(state: dict[str, Any], target: str) -> bool:
     return True
 
 
-def check_transitions(state: dict[str, Any], config: dict) -> Optional[Transition]:
+def check_transitions(
+    state: dict[str, Any],
+    config: dict,
+    max_consecutive_failures: int | None = None,
+    max_turns: int | None = None,
+) -> Optional[Transition]:
+    """Check if an automatic mode transition should fire.
+
+    Args:
+        max_consecutive_failures: Override from PolicyConsumer. When
+            provided, takes precedence over config["controller"].
+        max_turns: Override for max turns in explore mode.
+    """
     mode = state["mode"]
     if mode in _NO_AUTO_TRANSITION:
         return None
     controller = config.get("controller", {})
-    max_failures = controller.get("max_consecutive_failures", 3)
-    max_explore_turns = controller.get("max_turns_in_explore", 20)
+    eff_max_failures = (
+        max_consecutive_failures
+        or controller.get("max_consecutive_failures", 3)
+    )
+    eff_max_turns = max_turns or controller.get("max_turns_in_explore", 20)
 
-    if mode not in ("explore", "review") and state["consecutive_failures"] >= max_failures:
+    if mode not in ("explore", "review") and state["consecutive_failures"] >= eff_max_failures:
         if should_transition(state, "explore"):
             return Transition(target="explore", reason=f"Too many consecutive failures ({state['consecutive_failures']})")
 
-    if mode == "explore" and state["turns_in_mode"] >= max_explore_turns:
+    if mode == "explore" and state["turns_in_mode"] >= eff_max_turns:
         if should_transition(state, "implement"):
             return Transition(target="implement", reason=f"Extended exploration ({state['turns_in_mode']} turns) — time to try fixing")
 
