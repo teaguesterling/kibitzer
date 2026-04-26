@@ -8,11 +8,20 @@ from typing import Any
 from kibitzer.coach.observer import detect_patterns
 
 
-def should_fire(state: dict[str, Any], config: dict) -> bool:
-    """Check if the coach should fire on this call."""
+def should_fire(
+    state: dict[str, Any],
+    config: dict,
+    coaching_frequency: int | None = None,
+) -> bool:
+    """Check if the coach should fire on this call.
+
+    Args:
+        coaching_frequency: Override from PolicyConsumer. When provided,
+            takes precedence over config["coach"]["frequency"].
+    """
     if not config.get("coach", {}).get("enabled", True):
         return False
-    frequency = config.get("coach", {}).get("frequency", 5)
+    frequency = coaching_frequency or config.get("coach", {}).get("frequency", 5)
     model = state.get("model")
     if model:
         overrides = config.get("coach", {}).get("model_overrides", {})

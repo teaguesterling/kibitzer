@@ -39,7 +39,7 @@ class PolicyConsumer:
 
     def __init__(self, engine: Any) -> None:
         self._engine = engine
-        self._mode_cache: dict[str, ModePolicy] = {}
+        self._mode_cache: dict[tuple[str, str | None], ModePolicy] = {}
 
     @classmethod
     def from_db(cls, path: str | Path) -> PolicyConsumer | None:
@@ -66,15 +66,24 @@ class PolicyConsumer:
     def engine(self) -> Any:
         return self._engine
 
-    def get_mode_policy(self, mode: str) -> ModePolicy | None:
+    def get_mode_policy(
+        self, mode: str, active_mode: str | None = None,
+    ) -> ModePolicy | None:
         """Resolve a mode's full policy from the cascade.
+
+        Args:
+            mode: The mode entity to resolve properties for.
+            active_mode: Current active mode for cross-axis filtering
+                (v0.6). Rules scoped to a specific mode only apply
+                when that mode is active. Pass None to skip filtering.
 
         Returns None if the mode doesn't exist in the policy.
         """
-        if mode in self._mode_cache:
-            return self._mode_cache[mode]
+        cache_key = (mode, active_mode)
+        if cache_key in self._mode_cache:
+            return self._mode_cache[cache_key]
 
-        props = self._engine.resolve(type="mode", id=mode)
+        props = self._engine.resolve(type="mode", id=mode, mode=active_mode)
         if not props or not isinstance(props, dict):
             return None
 
@@ -90,13 +99,15 @@ class PolicyConsumer:
             ),
             max_turns=_parse_int(props.get("max-turns")),
         )
-        self._mode_cache[mode] = policy
+        self._mode_cache[cache_key] = policy
         return policy
 
-    def list_modes(self) -> list[str]:
+    def list_modes(self, active_mode: str | None = None) -> list[str]:
         """Return all mode IDs defined in the policy."""
         try:
-            all_modes = self._engine.resolve_all(type="mode")
+            all_modes = self._engine.resolve_all(
+                type="mode", mode=active_mode,
+            )
             return [
                 m.get("entity_id", "")
                 for m in all_modes
@@ -105,28 +116,45 @@ class PolicyConsumer:
         except Exception:
             return []
 
-    def get_tool_policy(self, tool_name: str) -> dict[str, str]:
-        """Resolve tool properties from the cascade."""
-        props = self._engine.resolve(type="tool", id=tool_name)
+    def get_tool_policy(
+        self, tool_name: str, active_mode: str | None = None,
+    ) -> dict[str, str]:
+        """Resolve tool properties from the cascade.
+
+        Args:
+            tool_name: Tool entity to resolve.
+            active_mode: Current mode for cross-axis filtering (v0.6).
+                Mode-scoped tool rules (e.g. "allow Bash only in free
+                mode") only apply when that mode is active.
+        """
+        props = self._engine.resolve(
+            type="tool", id=tool_name, mode=active_mode,
+        )
         if not props or not isinstance(props, dict):
             return {}
         return dict(props)
 
-    def to_config(self) -> dict[str, Any]:
+    def to_config(self, active_mode: str | None = None) -> dict[str, Any]:
         """Convert resolved policy to kibitzer config dict format.
 
         Bridge for backwards compatibility — existing code that reads
         config dicts works unchanged with policy-resolved data.
+
+        Args:
+            active_mode: Current mode for cross-axis filtering. When
+                provided, mode-scoped rules only apply for the active mode.
         """
         modes: dict[str, dict[str, Any]] = {}
-        for mode_id in self.list_modes():
-            policy = self.get_mode_policy(mode_id)
+        for mode_id in self.list_modes(active_mode=active_mode):
+            policy = self.get_mode_policy(mode_id, active_mode=active_mode)
             if policy is None:
                 continue
             mode_dict: dict[str, Any] = {
                 "writable": policy.writable,
                 "strategy": policy.strategy,
             }
+            if policy.coaching_frequency is not None:
+                mode_dict["coaching_frequency"] = policy.coaching_frequency
             if policy.max_consecutive_failures is not None:
                 mode_dict["max_consecutive_failures"] = (
                     policy.max_consecutive_failures

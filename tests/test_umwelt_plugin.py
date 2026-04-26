@@ -88,6 +88,16 @@ class TestVocabularyRegistration:
         assert prop.comparison == "<="
         assert prop.value_range == (1, 200)
 
+    def test_altitude_is_semantic(self, _vocab):
+        from umwelt.registry.properties import get_property
+
+        for name in [
+            "writable", "strategy", "coaching-frequency",
+            "max-consecutive-failures", "max-turns",
+        ]:
+            prop = get_property("state", "mode", name)
+            assert prop.altitude == "semantic", f"{name} should be semantic"
+
     def test_no_duplicate_registration(self, _vocab):
         from umwelt.errors import RegistryError
 
@@ -191,6 +201,69 @@ class TestPolicyConsumer:
         p2 = consumer.get_mode_policy("implement")
         assert p1 is not p2
         assert p1.writable == p2.writable
+
+
+class TestModeFilteredResolution:
+    """v0.6 cross-axis mode filtering — mode-scoped rules only fire
+    when the matching mode is active."""
+
+    @pytest.fixture
+    def mode_scoped_engine(self, _vocab):
+        engine = PolicyEngine()
+        engine.add_entities([
+            {"type": "mode", "id": "implement", "classes": (), "attributes": {}},
+            {"type": "mode", "id": "test", "classes": (), "attributes": {}},
+            {"type": "tool", "id": "Bash", "classes": ("dangerous",), "attributes": {"name": "Bash"}},
+            {"type": "tool", "id": "Edit", "classes": (), "attributes": {"name": "Edit"}},
+        ])
+        engine.add_stylesheet("""
+            mode { writable: *; coaching-frequency: 5; max-turns: 50; }
+            mode#implement { writable: src/, lib/; max-turns: 100; }
+            mode#test { writable: tests/; coaching-frequency: 10; }
+            tool { allow: true; }
+            mode#test tool.dangerous { allow: false; }
+        """)
+        return engine
+
+    def test_active_mode_matches(self, mode_scoped_engine):
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_engine(mode_scoped_engine)
+        policy = consumer.get_mode_policy("implement", active_mode="implement")
+        assert policy is not None
+        assert "src/" in policy.writable
+        # max-turns uses <= comparison (min wins): base=50, implement=100 → 50
+        assert policy.max_turns == 50
+
+    def test_active_mode_filters_cross_axis_tool(self, mode_scoped_engine):
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_engine(mode_scoped_engine)
+        props = consumer.get_tool_policy("Bash", active_mode="test")
+        assert props.get("allow") == "false"
+
+    def test_unscoped_tool_rules_always_apply(self, mode_scoped_engine):
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_engine(mode_scoped_engine)
+        props = consumer.get_tool_policy("Edit", active_mode="test")
+        assert props.get("allow") == "true"
+
+    def test_no_active_mode_includes_all(self, mode_scoped_engine):
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_engine(mode_scoped_engine)
+        policy = consumer.get_mode_policy("implement", active_mode=None)
+        assert policy is not None
+        assert "src/" in policy.writable
+
+    def test_cache_distinguishes_active_mode(self, mode_scoped_engine):
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_engine(mode_scoped_engine)
+        p1 = consumer.get_mode_policy("implement", active_mode="implement")
+        p2 = consumer.get_mode_policy("implement", active_mode=None)
+        assert p1 is not p2
 
 
 class TestPolicyConsumerFromDb:

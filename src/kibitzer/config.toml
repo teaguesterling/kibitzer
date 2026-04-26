@@ -36,6 +36,14 @@ haiku = { frequency = 3 }
 sonnet = { frequency = 5 }
 opus = { frequency = 10 }
 
+[docs]
+context7 = true
+# root = "docs/"
+# [docs.refs]
+# Edit = "tools/edit.md"
+# Read = "tools/read.md"
+# Bash = "tools/bash.md"
+
 [plugins.blq]
 mode = "observe"
 enabled = true

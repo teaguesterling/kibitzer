@@ -117,6 +117,7 @@ class KibitzerSession:
         except Exception:
             self._store = None  # degrade gracefully
         self._policy_consumer = self._load_policy_consumer()
+        self._load_docs_from_config()
         self._loaded = True
 
     def _load_policy_consumer(self):
@@ -129,6 +130,17 @@ class KibitzerSession:
             return PolicyConsumer.from_db(policy_db)
         except Exception:
             return None
+
+    def _load_docs_from_config(self) -> None:
+        """Auto-register docs from the [docs] config section."""
+        docs_cfg = self._config.get("docs", {})
+        refs = docs_cfg.get("refs")
+        if not refs:
+            return
+        root = docs_cfg.get("root")
+        if root:
+            root = str(self._project_dir / root)
+        self.register_docs(doc_refs=refs, docs_root=root)
 
     def save(self) -> None:
         """Persist state to disk."""
@@ -151,8 +163,7 @@ class KibitzerSession:
 
     @property
     def writable(self) -> list[str]:
-        policy = get_mode_policy(self._config, self.mode)
-        return policy.get("writable", ["*"])
+        return self._resolve_mode_policy(self.mode).get("writable", ["*"])
 
     @property
     def path_guard(self):
@@ -265,7 +276,7 @@ class KibitzerSession:
     def validate_calls(self, calls: list[dict]) -> list[CallResult]:
         """Batch validation — check calls without updating state."""
         violations = []
-        mode_policy = get_mode_policy(self._config, self.mode)
+        mode_policy = self._resolve_mode_policy(self.mode)
         for call in calls:
             tool = call.get("tool", "")
             inp = call.get("input", {})
@@ -284,16 +295,15 @@ class KibitzerSession:
 
     def change_mode(self, mode: str, reason: str = "") -> dict[str, Any]:
         """Switch mode. Returns new mode info or error."""
-        if mode not in self._config.get("modes", {}):
+        available = self._available_modes()
+        if mode not in available:
             return {
                 "error": (
-                    f"Unknown mode: {mode}. "
-                    f"Available: {list(self._config['modes'].keys())}"
+                    f"Unknown mode: {mode}. Available: {list(available)}"
                 )
             }
 
         previous = self.mode
-        policy = get_mode_policy(self._config, mode)
 
         self._state["previous_mode"] = previous
         self._state["turns_in_previous_mode"] = self._state.get("turns_in_mode", 0)
@@ -304,6 +314,11 @@ class KibitzerSession:
         self._state["turns_in_mode"] = 0
         self._state["mode_switches"] = self._state.get("mode_switches", 0) + 1
         self._state["tools_used_in_mode"] = {}
+
+        if self._policy_consumer is not None:
+            self._policy_consumer.invalidate_cache()
+
+        policy = self._resolve_mode_policy(mode)
 
         if self._store:
             self._store.append_event(
@@ -316,8 +331,8 @@ class KibitzerSession:
         return {
             "previous_mode": previous,
             "new_mode": mode,
-            "writable": policy["writable"],
-            "strategy": policy["strategy"],
+            "writable": policy.get("writable", ["*"]),
+            "strategy": policy.get("strategy", ""),
         }
 
     def get_suggestions(self, mark_given: bool = True) -> list[str]:
@@ -336,7 +351,7 @@ class KibitzerSession:
         result: dict[str, Any] = {}
 
         if status:
-            policy = get_mode_policy(self._config, self.mode)
+            policy = self._resolve_mode_policy(self.mode)
             result["status"] = {
                 "mode": self.mode,
                 "failure_count": self._state["failure_count"],
@@ -344,7 +359,7 @@ class KibitzerSession:
                 "consecutive_failures": self._state["consecutive_failures"],
                 "turns_in_mode": self._state["turns_in_mode"],
                 "total_calls": self._state["total_calls"],
-                "writable": policy["writable"],
+                "writable": policy.get("writable", ["*"]),
             }
 
         if suggestions:
@@ -435,24 +450,32 @@ class KibitzerSession:
     ):
         """Search tool docs for context relevant to a query.
 
-        Uses pluckit for retrieval, then runs the refinement pipeline:
-            retrieve (pluckit) -> select (callback) -> present (callback)
+        Pipeline: local docs (pluckit) → Context7 fallback → select → present.
 
-        Returns DocResult with matching sections, or empty if pluckit
-        unavailable or no docs registered.
+        Returns DocResult with matching sections. Falls back to Context7
+        for external library docs when local docs have no results.
         """
         from kibitzer.docs import DocResult
 
         ns = self._resolve_namespace(namespace)
         registry = self._doc_registry.get(ns)
-        if not registry:
+
+        # Step 1: RETRIEVE — local docs first
+        candidates = []
+        if registry:
+            candidates = self._retrieve_doc_sections(query, registry, tool=tool)
+
+        # Step 1b: FALLBACK — Context7 for external library docs
+        if not candidates and self._config.get("docs", {}).get("context7", True):
+            candidates = self._retrieve_from_context7(query)
+
+        if not candidates:
             return DocResult()
 
-        # Step 1: RETRIEVE (mechanical, pluckit)
-        candidates = self._retrieve_doc_sections(query, registry, tool=tool)
-
         # Use registered refinement as default, allow override
-        effective_refinement = refinement or registry.get("refinement")
+        effective_refinement = refinement or (
+            registry.get("refinement") if registry else None
+        )
 
         # Step 2: SELECT (callback or default top-N)
         context = {
@@ -524,6 +547,39 @@ class KibitzerSession:
                 tool=tool,
             )
             for s in raw_sections
+        ]
+
+    def _retrieve_from_context7(self, query: str) -> list:
+        """Fallback: search Context7 for external library documentation."""
+        from kibitzer.docs import DocSection
+        try:
+            from kibitzer.context7 import query_docs
+        except ImportError:
+            return []
+
+        # Extract a library name from the query — use the first
+        # recognizable token (heuristic: longest word that looks
+        # like a package name)
+        words = query.split()
+        if not words:
+            return []
+        library_name = max(words, key=len)
+
+        try:
+            results = query_docs(library_name, query, max_tokens=1500)
+        except Exception:
+            return []
+
+        return [
+            DocSection(
+                title=r.get("title", ""),
+                content=r.get("content", ""),
+                file_path=r.get("source", "context7"),
+                level=1,
+                tool=None,
+            )
+            for r in results
+            if r.get("content")
         ]
 
     def report_generation(
@@ -767,11 +823,42 @@ class KibitzerSession:
         data (coaching frequency, transition thresholds). Falls back to
         the config dict.
         """
+        resolved = self._resolve_mode_policy(self.mode)
+        result: dict[str, Any] = {
+            "mode": self.mode,
+            "writable": resolved.get("writable", []),
+            "strategy": resolved.get("strategy", ""),
+        }
+        for key in (
+            "coaching_frequency", "max_consecutive_failures",
+            "max_turns", "max_grade_w", "max_grade_d",
+        ):
+            if key in resolved:
+                result[key] = resolved[key]
+        return result
+
+    # --- Internal ---
+
+    def _available_modes(self) -> set[str]:
+        """Modes known to config and/or PolicyConsumer."""
+        modes = set(self._config.get("modes", {}).keys())
         if self._policy_consumer is not None:
-            mp = self._policy_consumer.get_mode_policy(self.mode)
+            modes.update(self._policy_consumer.list_modes())
+        return modes
+
+    def _resolve_mode_policy(self, mode: str) -> dict[str, Any]:
+        """Single source of truth for mode policy resolution.
+
+        Prefers PolicyConsumer (umwelt) when available, falls back to
+        config dict. All internal callers should use this instead of
+        get_mode_policy(self._config, mode) directly.
+        """
+        if self._policy_consumer is not None:
+            mp = self._policy_consumer.get_mode_policy(
+                mode, active_mode=self.mode,
+            )
             if mp is not None:
                 result: dict[str, Any] = {
-                    "mode": self.mode,
                     "writable": mp.writable,
                     "strategy": mp.strategy,
                 }
@@ -784,25 +871,12 @@ class KibitzerSession:
                 if mp.max_turns is not None:
                     result["max_turns"] = mp.max_turns
                 return result
-
-        policy = get_mode_policy(self._config, self.mode)
-        result = {
-            "mode": self.mode,
-            "writable": policy.get("writable", []),
-            "strategy": policy.get("strategy", ""),
-        }
-        if "max_grade_w" in policy:
-            result["max_grade_w"] = policy["max_grade_w"]
-        if "max_grade_d" in policy:
-            result["max_grade_d"] = policy["max_grade_d"]
-        return result
-
-    # --- Internal ---
+        return get_mode_policy(self._config, mode)
 
     def _before_call_impl(
         self, tool_name: str, tool_input: dict,
     ) -> CallResult | None:
-        mode_policy = get_mode_policy(self._config, self.mode)
+        mode_policy = self._resolve_mode_policy(self.mode)
 
         # Path guard
         if tool_name in _WRITE_TOOLS:
@@ -887,20 +961,35 @@ class KibitzerSession:
 
         messages = []
 
-        transition = check_transitions(self._state, self._config)
+        resolved = self._resolve_mode_policy(self.mode)
+        transition = check_transitions(
+            self._state, self._config,
+            max_consecutive_failures=resolved.get("max_consecutive_failures"),
+            max_turns=resolved.get("max_turns"),
+        )
         if transition is not None:
+            if self._policy_consumer is not None:
+                self._policy_consumer.invalidate_cache()
             apply_transition(self._state, transition)
             messages.append(
                 f"[kibitzer] Mode switched to {transition.target}: "
                 f"{transition.reason}"
             )
 
-        if should_fire(self._state, self._config):
+        if should_fire(
+            self._state, self._config,
+            coaching_frequency=resolved.get("coaching_frequency"),
+        ):
             suggestions = generate_suggestions(
                 self._state, project_dir=self._project_dir,
             )
             for s in suggestions:
                 messages.append(f"[kibitzer] {s}")
+
+        if not success and self._doc_registry:
+            doc_hint = self._doc_hint_for_failure(tool_name, tool_result)
+            if doc_hint:
+                messages.append(doc_hint)
 
         # Append to SQLite store
         if self._store:
@@ -920,6 +1009,45 @@ class KibitzerSession:
         if messages:
             return CallResult(context="\n".join(messages), tool=tool_name)
         return None
+
+    def _doc_hint_for_failure(
+        self, tool_name: str, tool_result: Any,
+    ) -> str | None:
+        """Query registered docs for context relevant to a tool failure.
+
+        Returns a formatted hint string, or None if no docs match.
+        """
+        error_text = self._extract_error_text(tool_result)
+        query = error_text or tool_name
+        try:
+            doc_result = self.get_doc_context(
+                query=query, tool=tool_name, limit=2,
+            )
+        except Exception:
+            return None
+        if not doc_result.sections:
+            return None
+        parts = [f"[kibitzer] Relevant docs for {tool_name}:"]
+        for s in doc_result.sections:
+            title = s.title or s.file_path
+            content = s.content
+            if len(content) > 300:
+                content = content[:297] + "..."
+            parts.append(f"  {title}: {content}")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _extract_error_text(tool_result: Any) -> str:
+        """Pull error text from a tool result for doc search."""
+        if isinstance(tool_result, dict):
+            if "error" in tool_result:
+                return str(tool_result["error"])[:200]
+            if "stderr" in tool_result:
+                stderr = str(tool_result["stderr"])
+                return stderr[-200:] if len(stderr) > 200 else stderr
+        if isinstance(tool_result, str) and len(tool_result) < 500:
+            return tool_result
+        return ""
 
     def _detect_success(self, tool_name: str, tool_result: Any) -> bool:
         if tool_name == "Bash" and isinstance(tool_result, dict):

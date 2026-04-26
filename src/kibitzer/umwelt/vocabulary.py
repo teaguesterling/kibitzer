@@ -45,6 +45,7 @@ def register_kibitzer_vocabulary() -> None:
             "['*'] = unrestricted, [] = read-only."
         ),
         category="access",
+        altitude="semantic",
     )
 
     # --- Expander: coaching ---
@@ -56,6 +57,7 @@ def register_kibitzer_vocabulary() -> None:
         value_type=str,
         description="Coaching strategy text shown to the agent in this mode.",
         category="coaching",
+        altitude="semantic",
     )
 
     register_property(
@@ -68,6 +70,7 @@ def register_kibitzer_vocabulary() -> None:
         value_range=(1, 100),
         description="Coach fires every N tool calls in this mode.",
         category="coaching",
+        altitude="semantic",
     )
 
     # --- Interactor: transitions ---
@@ -85,6 +88,7 @@ def register_kibitzer_vocabulary() -> None:
             "after N consecutive failures."
         ),
         category="transitions",
+        altitude="semantic",
     )
 
     register_property(
@@ -97,4 +101,5 @@ def register_kibitzer_vocabulary() -> None:
         value_range=(1, 200),
         description="Max turns in this mode before suggesting a switch.",
         category="transitions",
+        altitude="semantic",
     )

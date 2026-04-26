@@ -327,3 +327,159 @@ class TestCorrectionHintsWithDocs:
             )
             for section in (signal.get("doc_context") or []):
                 assert "signature" in section["title"].lower()
+
+
+# --- Config-based doc registration ---
+
+class TestDocsFromConfig:
+    def test_loads_docs_from_config(self, tmp_path):
+        """Docs declared in [docs] config section are auto-registered."""
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        # Write a project config with [docs] section
+        cfg_dir = tmp_path / ".kibitzer"
+        cfg_dir.mkdir(exist_ok=True)
+        import tomli_w  # noqa: F811 — only needed for writing TOML
+        pytest.importorskip("tomli_w", reason="tomli_w not installed")
+        with open(cfg_dir / "config.toml", "wb") as f:
+            tomli_w.dump({
+                "docs": {
+                    "root": ".",
+                    "refs": doc_refs,
+                }
+            }, f)
+        with KibitzerSession(project_dir=proj) as session:
+            assert session.doc_refs == doc_refs
+
+    def test_no_docs_section_is_fine(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            assert session.doc_refs == {}
+
+
+# --- PostToolUse doc injection on failure ---
+
+@pytest.mark.skipif(not _has_pluckit(), reason="pluckit not installed")
+class TestDocHintOnFailure:
+    def test_failure_injects_doc_hint(self, tmp_path):
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.after_call(
+                "edit_file",
+                {"file_path": "src/foo.py", "old_str": "x", "new_str": "y"},
+                success=False,
+                tool_result={"error": "old_str not found in file"},
+            )
+            assert result is not None
+            assert "[kibitzer] Relevant docs for edit_file" in result.context
+
+    def test_success_no_doc_hint(self, tmp_path):
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.after_call(
+                "edit_file",
+                {"file_path": "src/foo.py"},
+                success=True,
+                tool_result="ok",
+            )
+            # On success, no doc hint (may be None or have coach messages only)
+            if result is not None:
+                assert "Relevant docs" not in result.context
+
+    def test_no_docs_registered_no_hint(self, tmp_path):
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            result = session.after_call(
+                "edit_file",
+                {"file_path": "src/foo.py"},
+                success=False,
+                tool_result={"error": "not found"},
+            )
+            if result is not None:
+                assert "Relevant docs" not in result.context
+
+
+# --- MCP GetDocContext tool ---
+
+class TestContext7Fallback:
+    def test_falls_back_to_context7_when_no_local_docs(self, tmp_path):
+        """When no local docs match, Context7 is queried as fallback."""
+        proj = _project(tmp_path)
+        from unittest.mock import patch
+
+        mock_sections = [
+            {"title": "Redis Connection", "content": "Use Redis(url=...)", "source": "https://docs.example.com"},
+        ]
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs({"Read": "docs/read.md"}, docs_root=str(tmp_path))
+            with patch("kibitzer.session.KibitzerSession._retrieve_from_context7") as mock_c7:
+                from kibitzer.docs import DocSection
+                mock_c7.return_value = [
+                    DocSection(title="Redis Connection", content="Use Redis(url=...)",
+                               file_path="context7", level=1),
+                ]
+                result = session.get_doc_context("redis connection error")
+                mock_c7.assert_called_once()
+                assert len(result.sections) > 0
+                assert result.sections[0].title == "Redis Connection"
+
+    def test_no_context7_when_local_docs_match(self, tmp_path):
+        pytest.importorskip("pluckit", reason="pluckit not installed")
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        from unittest.mock import patch
+
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            with patch("kibitzer.session.KibitzerSession._retrieve_from_context7") as mock_c7:
+                result = session.get_doc_context("signature", tool="read_file")
+                mock_c7.assert_not_called()
+                assert len(result.sections) > 0
+
+    def test_context7_disabled_in_config(self, tmp_path):
+        proj = _project(tmp_path)
+        from unittest.mock import patch
+
+        with KibitzerSession(project_dir=proj) as session:
+            session._config.setdefault("docs", {})["context7"] = False
+            session.register_docs({"Read": "docs/read.md"}, docs_root=str(tmp_path))
+            with patch("kibitzer.session.KibitzerSession._retrieve_from_context7") as mock_c7:
+                session.get_doc_context("redis connection")
+                mock_c7.assert_not_called()
+
+    def test_context7_works_without_any_registration(self, tmp_path):
+        """Context7 should work even when no local docs are registered."""
+        proj = _project(tmp_path)
+        from unittest.mock import patch
+        from kibitzer.docs import DocSection
+
+        with KibitzerSession(project_dir=proj) as session:
+            with patch("kibitzer.session.KibitzerSession._retrieve_from_context7") as mock_c7:
+                mock_c7.return_value = [
+                    DocSection(title="Help", content="content",
+                               file_path="context7", level=1),
+                ]
+                result = session.get_doc_context("fastapi middleware")
+                assert len(result.sections) > 0
+
+
+class TestMcpGetDocContext:
+    def test_returns_sections(self, tmp_path):
+        pytest.importorskip("pluckit", reason="pluckit not installed")
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        from kibitzer.mcp.server import get_doc_context
+        # Direct Python caller path
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context("signature", tool="read_file")
+        assert len(result.sections) > 0
+
+    def test_no_docs_returns_empty(self, tmp_path):
+        from kibitzer.mcp.server import get_doc_context
+        result = get_doc_context("anything", project_dir=tmp_path)
+        assert result["sections"] == []
