@@ -45,19 +45,22 @@ class TestSearchLibrary:
 
 
 class TestFetchDocs:
-    def test_returns_parsed_sections(self):
-        mock_response = [
-            {
-                "title": "Getting Started",
-                "content": "Install with pip install redis",
-                "url": "https://docs.example.com/start",
-            },
-            {
-                "title": "Connection",
-                "content": "Use Redis() to connect",
-                "url": "https://docs.example.com/connect",
-            },
-        ]
+    def test_parses_info_snippets(self):
+        mock_response = {
+            "infoSnippets": [
+                {
+                    "breadcrumb": "Getting Started",
+                    "content": "Install with pip install redis",
+                    "pageId": "https://docs.example.com/start",
+                },
+                {
+                    "breadcrumb": "Connection",
+                    "content": "Use Redis() to connect",
+                    "pageId": "https://docs.example.com/connect",
+                },
+            ],
+            "codeSnippets": [],
+        }
         with patch("kibitzer.context7._get_json", return_value=mock_response):
             sections = fetch_docs("/lib/redis", "connection")
         assert len(sections) == 2
@@ -65,34 +68,52 @@ class TestFetchDocs:
         assert "pip install" in sections[0]["content"]
         assert sections[0]["source"] == "https://docs.example.com/start"
 
-    def test_handles_segment_keys(self):
-        mock_response = [
-            {
-                "segment_title": "Config",
-                "segment_content": "Set the URL",
-                "source": "config.md",
-            }
-        ]
+    def test_parses_code_snippets(self):
+        mock_response = {
+            "infoSnippets": [],
+            "codeSnippets": [
+                {
+                    "codeTitle": "Config Example",
+                    "codeDescription": "Set the URL",
+                    "codeId": "config.md",
+                    "codeList": [{"language": "python", "code": "url = 'redis://localhost'"}],
+                }
+            ],
+        }
         with patch("kibitzer.context7._get_json", return_value=mock_response):
             sections = fetch_docs("/lib/x", "config")
-        assert sections[0]["title"] == "Config"
-        assert sections[0]["content"] == "Set the URL"
+        assert sections[0]["title"] == "Config Example"
+        assert "Set the URL" in sections[0]["content"]
+        assert "redis://localhost" in sections[0]["content"]
 
-    def test_handles_dict_with_context_key(self):
+    def test_merges_info_and_code_snippets(self):
         mock_response = {
-            "context": [
-                {"title": "Auth", "content": "Use API key", "url": ""}
-            ]
+            "infoSnippets": [
+                {"breadcrumb": "Auth", "content": "Use API key", "pageId": ""},
+            ],
+            "codeSnippets": [
+                {
+                    "codeTitle": "Auth Code",
+                    "codeDescription": "Example",
+                    "codeId": "",
+                    "codeList": [{"code": "key = 'abc'"}],
+                },
+            ],
         }
         with patch("kibitzer.context7._get_json", return_value=mock_response):
             sections = fetch_docs("/lib/x", "auth")
-        assert len(sections) == 1
+        assert len(sections) == 2
 
     def test_skips_empty_content(self):
-        mock_response = [
-            {"title": "Empty", "content": ""},
-            {"title": "Real", "content": "has content"},
-        ]
+        mock_response = {
+            "infoSnippets": [
+                {"breadcrumb": "Empty", "content": "", "pageId": ""},
+                {"breadcrumb": "Real", "content": "has content", "pageId": ""},
+            ],
+            "codeSnippets": [
+                {"codeTitle": "Empty Code", "codeDescription": "", "codeId": "", "codeList": []},
+            ],
+        }
         with patch("kibitzer.context7._get_json", return_value=mock_response):
             sections = fetch_docs("/lib/x", "query")
         assert len(sections) == 1
@@ -100,6 +121,10 @@ class TestFetchDocs:
 
     def test_returns_empty_on_failure(self):
         with patch("kibitzer.context7._get_json", return_value=None):
+            assert fetch_docs("/lib/x", "query") == []
+
+    def test_returns_empty_on_non_dict(self):
+        with patch("kibitzer.context7._get_json", return_value="not a dict"):
             assert fetch_docs("/lib/x", "query") == []
 
 

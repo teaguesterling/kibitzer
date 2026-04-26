@@ -45,6 +45,9 @@ def fetch_docs(
     """Fetch documentation sections from Context7 for a library + query.
 
     Returns a list of dicts with title, content, and source fields.
+    The API returns two snippet types that we merge:
+        - infoSnippets: prose documentation (breadcrumb, content, pageId)
+        - codeSnippets: code examples (codeTitle, codeDescription, codeList)
     """
     params = urllib.parse.urlencode({
         "libraryId": library_id,
@@ -54,20 +57,38 @@ def fetch_docs(
     })
     url = f"{_BASE_URL}/context?{params}"
     data = _get_json(url)
-    if not data:
+    if not data or not isinstance(data, dict):
         return []
-    sections = data if isinstance(data, list) else data.get("context", [])
-    if not isinstance(sections, list):
-        return []
-    return [
-        {
-            "title": s.get("title", s.get("segment_title", "")),
-            "content": s.get("content", s.get("segment_content", "")),
-            "source": s.get("url", s.get("source", "")),
-        }
-        for s in sections
-        if s.get("content") or s.get("segment_content")
-    ]
+
+    results: list[dict[str, Any]] = []
+
+    for info in data.get("infoSnippets", []):
+        content = info.get("content", "")
+        if content:
+            results.append({
+                "title": info.get("breadcrumb", ""),
+                "content": content,
+                "source": info.get("pageId", ""),
+            })
+
+    for code in data.get("codeSnippets", []):
+        parts = []
+        desc = code.get("codeDescription", "")
+        if desc:
+            parts.append(desc)
+        for item in code.get("codeList", []):
+            c = item.get("code", "")
+            if c:
+                parts.append(c)
+        content = "\n\n".join(parts)
+        if content:
+            results.append({
+                "title": code.get("codeTitle", code.get("pageTitle", "")),
+                "content": content,
+                "source": code.get("codeId", ""),
+            })
+
+    return results
 
 
 def query_docs(

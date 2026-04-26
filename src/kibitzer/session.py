@@ -550,23 +550,40 @@ class KibitzerSession:
         ]
 
     def _retrieve_from_context7(self, query: str) -> list:
-        """Fallback: search Context7 for external library documentation."""
+        """Fallback: search Context7 for external library documentation.
+
+        Extracts a library name from the query by trying each word as
+        a candidate and picking the one Context7 recognizes with the
+        highest trust score.
+        """
         from kibitzer.docs import DocSection
         try:
-            from kibitzer.context7 import query_docs
+            from kibitzer.context7 import fetch_docs, search_library
         except ImportError:
             return []
 
-        # Extract a library name from the query — use the first
-        # recognizable token (heuristic: longest word that looks
-        # like a package name)
         words = query.split()
         if not words:
             return []
-        library_name = max(words, key=len)
+
+        # Try words from end first — error messages typically put the
+        # relevant identifier (package name) last
+        candidates = [
+            w.strip(".:,'\"()[]") for w in reversed(words)
+        ]
+        candidates = [c for c in candidates if len(c) >= 3 and not c[0].isupper()]
+
+        library_id = None
+        for candidate in candidates:
+            library_id = search_library(candidate)
+            if library_id:
+                break
+
+        if not library_id:
+            return []
 
         try:
-            results = query_docs(library_name, query, max_tokens=1500)
+            results = fetch_docs(library_id, query, max_tokens=1500)
         except Exception:
             return []
 
@@ -986,7 +1003,10 @@ class KibitzerSession:
             for s in suggestions:
                 messages.append(f"[kibitzer] {s}")
 
-        if not success and self._doc_registry:
+        if not success and (
+            self._doc_registry
+            or self._config.get("docs", {}).get("context7", True)
+        ):
             doc_hint = self._doc_hint_for_failure(tool_name, tool_result)
             if doc_hint:
                 messages.append(doc_hint)
