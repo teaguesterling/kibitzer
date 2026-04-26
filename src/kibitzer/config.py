@@ -32,15 +32,15 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def load_config(project_dir: Path | None = None) -> dict:
     """Load config: defaults merged with project-local overrides.
 
-    Config sources, checked in order:
+    Config sources, checked in order (highest priority last):
       1. Package defaults (config.toml shipped with kibitzer)
       2. Project-local .kibitzer/config.toml (TOML overrides)
-      3. Project-local .kibitzer/policy.duckdb (ducklog policy database)
+      3. Project-local .kibitzer/policy.duckdb (legacy ducklog database)
+      4. Project-local .kibitzer/policy.db (umwelt compiled policy)
 
-    When a ducklog database is present, its mode definitions and tool
-    surfaces are merged on top of the TOML config. This lets a project
-    author policy in umwelt's .umw format and have kibitzer consume it
-    directly via the compiled database.
+    Umwelt policy (tier 4) supersedes ducklog (tier 3). When both exist,
+    only the umwelt policy is used. Either way, the result merges on top
+    of the TOML config.
     """
     with open(DEFAULT_CONFIG_PATH, "rb") as f:
         config = tomllib.load(f)
@@ -55,14 +55,41 @@ def load_config(project_dir: Path | None = None) -> dict:
             except (tomllib.TOMLDecodeError, OSError):
                 pass  # corrupt project config — use defaults
 
-        # ducklog policy database — overrides/extends TOML config
-        policy_db = project_dir / ".kibitzer" / "policy.duckdb"
+        # Tier 4: umwelt compiled policy (preferred)
+        policy_db = project_dir / ".kibitzer" / "policy.db"
         if policy_db.exists():
-            ducklog_config = _load_from_ducklog(policy_db)
+            umwelt_config = _load_from_umwelt(policy_db)
+            if umwelt_config:
+                config = _deep_merge(config, umwelt_config)
+                return config
+
+        # Tier 3: legacy ducklog policy database (fallback)
+        ducklog_db = project_dir / ".kibitzer" / "policy.duckdb"
+        if ducklog_db.exists():
+            ducklog_config = _load_from_ducklog(ducklog_db)
             if ducklog_config:
                 config = _deep_merge(config, ducklog_config)
 
     return config
+
+
+def _load_from_umwelt(db_path: Path) -> dict | None:
+    """Load mode config from a compiled umwelt policy database.
+
+    Returns None if umwelt is not installed — this is an optional
+    integration, not a hard dependency.
+    """
+    try:
+        from kibitzer.umwelt.consumer import PolicyConsumer
+
+        consumer = PolicyConsumer.from_db(db_path)
+        if consumer is None:
+            return None
+        return consumer.to_config()
+    except ImportError:
+        return None
+    except Exception:
+        return None
 
 
 def _load_from_ducklog(db_path: Path) -> dict | None:

@@ -44,6 +44,17 @@ Two persistence stores:
 | `state.json` | JSON | Hot counters — mode, failures, turns, suggestions given. Read/written every hook call. |
 | `store.sqlite` | SQLite | Event log — tool calls, denials, mode switches, errors. Append-only, queryable by Riggs via DuckDB ATTACH. |
 
+Configuration loads from four tiers (highest priority last):
+
+| Tier | Source | Purpose |
+|---|---|---|
+| 1 | `src/kibitzer/config.toml` | Package defaults — 6 modes, controller thresholds, plugin settings |
+| 2 | `.kibitzer/config.toml` | Project-local TOML overrides |
+| 3 | `.kibitzer/policy.duckdb` | Legacy ducklog policy database |
+| 4 | `.kibitzer/policy.db` | Umwelt compiled policy (supersedes tier 3) |
+
+When an umwelt policy database is present, `PolicyConsumer` reads resolved mode properties from the cascade and converts them to config dict format via `to_config()`. This lets policy authors define modes, writable paths, coaching frequency, and transition thresholds in `.umw` stylesheets.
+
 Hooks and MCP server share state through `KibitzerSession`. Each hook invocation creates a session (`with KibitzerSession(safe_mode=True)`), does its work, and saves on exit. The MCP server holds a longer-lived session. External tools like lackpy import `KibitzerSession` directly.
 
 ## Hook protocol
@@ -157,6 +168,9 @@ src/kibitzer/
 │   ├── pre_tool_use.py    Thin wrapper: KibitzerSession → before_call → hook output
 │   ├── post_tool_use.py   Thin wrapper: KibitzerSession → after_call → hook output
 │   └── templates.py       Generates bash hook scripts for .claude/hooks/
+├── umwelt/
+│   ├── vocabulary.py      register_kibitzer_vocabulary() — properties on state.mode
+│   └── consumer.py        PolicyConsumer — wraps PolicyEngine for kibitzer queries
 ├── mcp/
 │   └── server.py          Thin wrapper: delegates to KibitzerSession
 ├── cli.py                 Click CLI: init, serve

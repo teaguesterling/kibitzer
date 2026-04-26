@@ -1,6 +1,6 @@
 # Integration
 
-Kibitzer coordinates three existing tools and integrates with the superpowers plugin. None of these are required — kibitzer degrades gracefully.
+Kibitzer coordinates three existing tools, integrates with the superpowers plugin, and participates in the umwelt policy framework. None of these are required — kibitzer degrades gracefully.
 
 ## What works without anything installed
 
@@ -17,6 +17,7 @@ Kibitzer coordinates three existing tools and integrates with the superpowers pl
 | FledglingInterceptor | fledgling on PATH |
 | Coach (semantic underuse) | fledgling available to the agent |
 | Doc context pipeline | pluckit Python package |
+| Policy from umwelt | umwelt Python package + compiled `.kibitzer/policy.db` |
 
 ## blq
 
@@ -107,6 +108,52 @@ Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Witho
 - Does not provide FTS/semantic search (uses pluckit's ILIKE with multi-word fallback)
 - Does not decide which sections matter — that's the consumer's `select` callback
 
+## Umwelt
+
+[Umwelt](https://github.com/teague/umwelt) is a policy framework — stylesheets for runtime behavior. Kibitzer registers vocabulary (properties on `state.mode`) and consumes compiled policy databases to override its default config.toml values.
+
+**What kibitzer uses from umwelt:**
+- `umwelt.registry.register_property()` — declares 5 properties on the `state.mode` entity
+- `umwelt.policy.PolicyEngine.from_db()` — loads compiled `.kibitzer/policy.db`
+- `engine.resolve(type="mode", id=mode_name)` — resolves mode properties through the cascade
+
+**Vocabulary registration:**
+
+Kibitzer adds properties to umwelt's existing `state.mode` entity rather than creating its own taxon. These properties map to kibitzer's three roles:
+
+| Role | Property | Type | Comparison | Purpose |
+|------|----------|------|------------|---------|
+| Restrictor | `writable` | list | pattern-in | Path prefixes writable in this mode |
+| Expander | `strategy` | str | exact | Coaching strategy text for the agent |
+| Expander | `coaching-frequency` | int | <= (min) | Coach fires every N tool calls |
+| Interactor | `max-consecutive-failures` | int | <= (min) | Auto-transition threshold |
+| Interactor | `max-turns` | int | <= (min) | Max turns before suggesting a switch |
+
+**How policies flow:**
+
+```
+.umw stylesheets          umwelt compile          .kibitzer/policy.db
+(human-authored)    →     (build step)      →     (SQLite, checked in)
+                                                        │
+                                                  PolicyConsumer
+                                                  .from_db(path)
+                                                        │
+                                                  .to_config() → dict
+                                                        │
+                                              merged into load_config()
+                                              as tier 4 (highest priority)
+```
+
+Install with `pip install kibitzer[umwelt]`. Without umwelt, kibitzer uses its built-in config.toml defaults — no degradation.
+
+**What kibitzer does NOT do:**
+- Does not compile policy databases (that's `umwelt compile`)
+- Does not define its own taxon — uses existing `state.mode`
+- Does not write to the policy database (read-only consumer)
+- Does not require umwelt at runtime — all imports are guarded
+
+**Design note:** Kibitzer fills three umwelt roles simultaneously. As a **restrictor**, the `writable` property constrains which paths the path guard allows. As an **expander**, `strategy` and `coaching-frequency` control coaching behavior. As an **interactor**, `max-consecutive-failures` and `max-turns` govern mode controller thresholds. Policy authors can tune all of these per-mode in `.umw` stylesheets without touching kibitzer's code.
+
 ## Superpowers
 
 The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/tree/main/superpowers) manages workflow phases (brainstorm → plan → implement → review) through skill invocations. Kibitzer manages tool constraints (what can be written where).
@@ -134,7 +181,15 @@ The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/t
 ## Integration architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
+                          ┌───────────┐
+                          │  umwelt   │
+                          │ (level 0) │
+                          │           │
+                          │  policy   │
+                          │ framework │
+                          └─────┬─────┘
+                                │ policy.db
+┌───────────────────────────────┴──────────────────────────────────┐
 │                       KIBITZER (level 1)                         │
 │  Hooks: path guard, interceptors, mode controller, coach         │
 │  MCP: ChangeToolMode, GetFeedback                                │
@@ -150,4 +205,4 @@ The [superpowers plugin](https://github.com/anthropics/claude-plugins-official/t
  └───────────┘ └───────────┘ └─────────────┘ └───────────┘
 ```
 
-Each tool is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion. Pluckit is the one exception — kibitzer calls it directly for doc retrieval, but only when the consumer has registered docs.
+Umwelt sits above kibitzer — it provides the policy that kibitzer consumes. Each tool below is independent. Kibitzer suggests alternatives but never wraps or calls them. The agent decides whether to use the suggestion. Pluckit is the one exception — kibitzer calls it directly for doc retrieval, but only when the consumer has registered docs.

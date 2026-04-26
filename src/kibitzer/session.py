@@ -88,6 +88,7 @@ class KibitzerSession:
         self._registered_tools: dict[str, tuple[int, int]] = {}
         self._context: dict[str, Any] = {}
         self._doc_registry: dict[str | None, dict] = {}
+        self._policy_consumer = None
         self._loaded = False
 
     def __enter__(self):
@@ -115,7 +116,19 @@ class KibitzerSession:
             self._store.init()
         except Exception:
             self._store = None  # degrade gracefully
+        self._policy_consumer = self._load_policy_consumer()
         self._loaded = True
+
+    def _load_policy_consumer(self):
+        """Try to load a PolicyConsumer from the compiled policy database."""
+        policy_db = self._project_dir / ".kibitzer" / "policy.db"
+        if not policy_db.exists():
+            return None
+        try:
+            from kibitzer.umwelt.consumer import PolicyConsumer
+            return PolicyConsumer.from_db(policy_db)
+        except Exception:
+            return None
 
     def save(self) -> None:
         """Persist state to disk."""
@@ -180,6 +193,11 @@ class KibitzerSession:
     @property
     def context(self) -> dict[str, Any]:
         return self._context
+
+    @property
+    def policy_consumer(self):
+        """PolicyConsumer when umwelt policy is loaded, else None."""
+        return self._policy_consumer
 
     @property
     def namespace(self) -> str | None:
@@ -743,14 +761,36 @@ class KibitzerSession:
         return result
 
     def get_mode_policy(self) -> dict[str, Any]:
-        """Expose current mode constraints for grade-aware tool selection."""
+        """Expose current mode constraints for grade-aware tool selection.
+
+        When a PolicyConsumer is available, queries it for richer mode
+        data (coaching frequency, transition thresholds). Falls back to
+        the config dict.
+        """
+        if self._policy_consumer is not None:
+            mp = self._policy_consumer.get_mode_policy(self.mode)
+            if mp is not None:
+                result: dict[str, Any] = {
+                    "mode": self.mode,
+                    "writable": mp.writable,
+                    "strategy": mp.strategy,
+                }
+                if mp.coaching_frequency is not None:
+                    result["coaching_frequency"] = mp.coaching_frequency
+                if mp.max_consecutive_failures is not None:
+                    result["max_consecutive_failures"] = (
+                        mp.max_consecutive_failures
+                    )
+                if mp.max_turns is not None:
+                    result["max_turns"] = mp.max_turns
+                return result
+
         policy = get_mode_policy(self._config, self.mode)
-        result: dict[str, Any] = {
+        result = {
             "mode": self.mode,
             "writable": policy.get("writable", []),
             "strategy": policy.get("strategy", ""),
         }
-        # Include grade ceiling if configured
         if "max_grade_w" in policy:
             result["max_grade_w"] = policy["max_grade_w"]
         if "max_grade_d" in policy:
