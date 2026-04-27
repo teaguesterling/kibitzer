@@ -16,11 +16,16 @@ CREATE TABLE IF NOT EXISTS events (
     tool_input TEXT,
     success INTEGER,
     mode TEXT,
-    data TEXT
+    data TEXT,
+    source TEXT DEFAULT 'agent'
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 """
+
+_MIGRATIONS = [
+    "ALTER TABLE events ADD COLUMN source TEXT DEFAULT 'agent'",
+]
 
 
 class KibitzerStore:
@@ -34,6 +39,15 @@ class KibitzerStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as con:
             con.executescript(_SCHEMA)
+            self._migrate(con)
+
+    def _migrate(self, con: sqlite3.Connection) -> None:
+        """Apply migrations for schema changes to existing databases."""
+        for sql in _MIGRATIONS:
+            try:
+                con.execute(sql)
+            except sqlite3.OperationalError:
+                pass
 
     def append_event(
         self,
@@ -44,15 +58,16 @@ class KibitzerStore:
         success: bool | None = None,
         mode: str | None = None,
         data: str | None = None,
+        source: str | None = None,
     ) -> None:
         """Append one event. Opens connection, inserts, closes."""
         with self._connect() as con:
             con.execute(
-                """INSERT INTO events (session_id, event_type, tool_name, tool_input, success, mode, data)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO events (session_id, event_type, tool_name, tool_input, success, mode, data, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, event_type, tool_name, tool_input,
                  1 if success else (0 if success is not None else None),
-                 mode, data),
+                 mode, data, source or "agent"),
             )
 
     def query_events(

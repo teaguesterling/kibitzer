@@ -1,16 +1,17 @@
-"""CLI entry point: kibitzer init / kibitzer serve."""
+"""CLI entry point for kibitzer."""
 
 from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import click
 
 from kibitzer.config import DEFAULT_CONFIG_PATH
 from kibitzer.hooks.templates import write_hook_scripts
-from kibitzer.state import fresh_state, save_state
+from kibitzer.state import fresh_state, load_state, save_state
 
 
 @click.group()
@@ -22,7 +23,11 @@ def cli():
 @cli.command()
 @click.option("--hooks/--no-hooks", default=True, help="Install Claude Code hooks")
 @click.option("--mcp/--no-mcp", default=False, help="Create .mcp.json for MCP server")
-def init(hooks: bool, mcp: bool):
+@click.option("--shell", is_flag=True, default=False,
+              help="Print shell integration snippet (bash/zsh)")
+@click.option("--git-hooks", is_flag=True, default=False,
+              help="Install git pre-commit hook")
+def init(hooks: bool, mcp: bool, shell: bool, git_hooks: bool):
     """Initialize kibitzer in the current project."""
     project_dir = Path.cwd()
 
@@ -50,6 +55,16 @@ def init(hooks: bool, mcp: bool):
 
     if mcp:
         _write_mcp_json(project_dir)
+
+    if git_hooks:
+        from kibitzer.hooks.templates import write_git_pre_commit_hook
+        hook_path = write_git_pre_commit_hook(project_dir)
+        click.echo(f"Created {hook_path}")
+
+    if shell:
+        from kibitzer.hooks.templates import shell_integration_snippet
+        click.echo(shell_integration_snippet())
+        return
 
     click.echo("Kibitzer initialized.")
 
@@ -134,3 +149,175 @@ def serve(transport: str):
     from kibitzer.mcp.server import create_mcp_server
     mcp = create_mcp_server()
     mcp.run(transport=transport)
+
+
+# --- Human-facing CLI commands ---
+
+
+def _open_session():
+    """Create and load a KibitzerSession for CLI use."""
+    from kibitzer.session import KibitzerSession
+    session = KibitzerSession(project_dir=Path.cwd())
+    session.load()
+    return session
+
+
+@cli.command()
+@click.argument("new_mode", required=False)
+def mode(new_mode: str | None):
+    """Get or set the current kibitzer mode."""
+    session = _open_session()
+    if new_mode is None:
+        policy = session._resolve_mode_policy(session.mode)
+        click.echo(f"{session.mode}")
+        writable = policy.get("writable", ["*"])
+        if writable != ["*"]:
+            click.echo(f"  writable: {', '.join(writable)}")
+        strategy = policy.get("strategy", "")
+        if strategy:
+            click.echo(f"  strategy: {strategy}")
+    else:
+        result = session.change_mode(new_mode, reason="cli")
+        session.save()
+        if "error" in result:
+            raise click.ClickException(result["error"])
+        click.echo(f"{result['previous_mode']} → {result['new_mode']}")
+
+
+@cli.command()
+def status():
+    """Show kibitzer session status."""
+    project_dir = Path.cwd()
+    state_dir = project_dir / ".kibitzer"
+    state = load_state(state_dir)
+
+    click.echo(f"mode:    {state.get('mode', 'implement')}")
+    click.echo(f"turns:   {state.get('turns_in_mode', 0)}")
+    click.echo(f"calls:   {state.get('total_calls', 0)}")
+    click.echo(f"fails:   {state.get('consecutive_failures', 0)} consecutive")
+    click.echo(f"edits:   {state.get('edits_since_test', 0)} since last test")
+    switches = state.get("mode_switches", 0)
+    prev = state.get("previous_mode")
+    if prev:
+        click.echo(f"prev:    {prev} ({switches} switches)")
+
+
+@cli.command()
+@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
+              default="text", help="Output format")
+def prompt(fmt: str):
+    """Print a short mode indicator for shell prompt integration."""
+    project_dir = Path.cwd()
+    state_dir = project_dir / ".kibitzer"
+    state = load_state(state_dir)
+    mode_name = state.get("mode", "implement")
+    fails = state.get("consecutive_failures", 0)
+
+    if fmt == "json":
+        click.echo(json.dumps({"mode": mode_name, "consecutive_failures": fails}))
+    else:
+        indicator = mode_name
+        if fails >= 3:
+            indicator += "!"
+        click.echo(indicator)
+
+
+@cli.command(name="validate-staged")
+@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
+              default="text", help="Output format")
+def validate_staged(fmt: str):
+    """Check staged git files against mode writable paths. Exit 1 if violations."""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            raise click.ClickException("git diff --cached failed")
+        staged = [f.strip() for f in result.stdout.splitlines() if f.strip()]
+    except FileNotFoundError:
+        raise click.ClickException("git not found")
+
+    if not staged:
+        if fmt == "json":
+            click.echo(json.dumps({"ok": True, "violations": []}))
+        return
+
+    session = _open_session()
+    policy = session._resolve_mode_policy(session.mode)
+
+    from kibitzer.guards.path_guard import check_path
+    violations = []
+    for path in staged:
+        guard_result = check_path(path, policy)
+        if not guard_result.allowed:
+            violations.append({"path": path, "reason": guard_result.reason})
+
+    if fmt == "json":
+        click.echo(json.dumps({"ok": not violations, "violations": violations}))
+    elif violations:
+        click.echo(
+            f"Mode '{session.mode}' does not allow writes to:",
+            err=True,
+        )
+        for v in violations:
+            click.echo(f"  {v['path']}", err=True)
+        raise SystemExit(1)
+
+
+@cli.command(name="shell-post")
+@click.argument("command_line")
+def shell_post(command_line: str):
+    """Coaching feedback for a shell command. Called from preexec/precmd hooks."""
+    session = _open_session()
+    suggestions = _coach_shell_command(session, command_line)
+    if suggestions:
+        click.echo("kibitzer: " + suggestions[0], err=True)
+
+
+def _coach_shell_command(session, command_line: str) -> list[str]:
+    """Generate suggestions for a human shell command."""
+    parts = command_line.strip().split()
+    if not parts:
+        return []
+    cmd = parts[0]
+
+    suggestions = []
+
+    if cmd == "git" and len(parts) > 1:
+        subcmd = parts[1]
+        if subcmd in ("add", "commit", "push", "checkout", "reset"):
+            try:
+                import shutil as _shutil
+                if _shutil.which("jetsam"):
+                    jetsam_map = {
+                        "add": "jetsam save",
+                        "commit": "jetsam save",
+                        "push": "jetsam sync",
+                        "checkout": "jetsam switch",
+                        "reset": "jetsam sync",
+                    }
+                    alt = jetsam_map.get(subcmd)
+                    if alt:
+                        suggestions.append(f"consider: {alt}")
+            except Exception:
+                pass
+
+    if cmd == "pytest" or (cmd == "python" and "-m" in parts and "pytest" in parts):
+        try:
+            import shutil as _shutil
+            if _shutil.which("blq"):
+                suggestions.append("consider: blq run test")
+        except Exception:
+            pass
+
+    if session._store:
+        session._store.append_event(
+            event_type="shell_command",
+            session_id=session._state.get("session_id"),
+            mode=session.mode,
+            data=json.dumps({"command": command_line}),
+            source="shell",
+        )
+
+    return suggestions

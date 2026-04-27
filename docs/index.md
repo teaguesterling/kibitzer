@@ -22,6 +22,12 @@ cd your-project/
 kibitzer init --hooks --mcp
 ```
 
+For shell integration (prompt indicator, command coaching, pre-commit guard):
+
+```bash
+kibitzer init --shell --git-hooks
+```
+
 For richer coaching with fledgling conversation analytics:
 
 ```bash
@@ -41,6 +47,7 @@ This creates:
 - [Modes](modes.md) — the 6 modes and how path protection works
 - [Coach](coach.md) — what patterns the coach detects and when
 - [Interceptors](interceptors.md) — bash command interception and the observe/suggest/redirect ratchet
+- [Shell Hooks](shell-hooks.md) — CLI commands, shell prompt, pre-commit guard, command coaching
 - [Configuration](configuration.md) — full config.toml reference
 - [Architecture](architecture.md) — how the pieces fit together
 - [Python API](python-api.md) — use kibitzer from Python (for lackpy, Riggs, custom tools)
