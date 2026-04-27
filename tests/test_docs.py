@@ -165,6 +165,14 @@ def _has_pluckit():
         return False
 
 
+def _has_fledgling():
+    try:
+        import fledgling
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.mark.skipif(not _has_pluckit(), reason="pluckit not installed")
 class TestGetDocContext:
     def test_retrieves_relevant_sections(self, tmp_path):
@@ -303,6 +311,26 @@ class TestGetDocContext:
             with patch.object(
                 session, "_build_doc_collection", side_effect=Exception("no fledgling")
             ):
+                result = session.get_doc_context("read_file")
+                assert len(result.sections) > 0
+
+    def test_works_with_pluckit_only(self, tmp_path):
+        """Doc retrieval works when fledgling is not installed (no profile)."""
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        from unittest.mock import patch
+        import pluckit.plucker as pmod
+
+        orig_init = pmod.Plucker.__init__
+
+        def reject_profile(self_inner, *args, profile=None, **kwargs):
+            if profile is not None:
+                raise TypeError("profile requires fledgling")
+            return orig_init(self_inner, *args, **kwargs)
+
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            with patch.object(pmod.Plucker, "__init__", reject_profile):
                 result = session.get_doc_context("read_file")
                 assert len(result.sections) > 0
 
@@ -515,3 +543,99 @@ class TestMcpGetDocContext:
         from kibitzer.mcp.server import get_doc_context
         result = get_doc_context("anything", project_dir=tmp_path)
         assert result["sections"] == []
+
+
+# --- BM25 ranking quality tests ---
+
+@pytest.mark.skipif(
+    not (_has_pluckit() and _has_fledgling()),
+    reason="pluckit + fledgling required for BM25 tests",
+)
+class TestBm25DocRetrieval:
+    """Tests that specifically exercise BM25 ranking over ILIKE."""
+
+    def _write_varied_docs(self, root):
+        """Create docs with overlapping vocabulary to test ranking."""
+        docs_dir = root / "docs" / "tools"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "read_file.md").write_text(
+            "# read_file\n\n"
+            "Read a file from the workspace.\n\n"
+            "## Parameters\n\n"
+            "- **path**: The file path to read. Must be relative.\n\n"
+            "## Notes\n\n"
+            "Raises FileNotFoundError if the path does not exist.\n"
+            "Returns the full file content as a string.\n"
+        )
+        (docs_dir / "edit_file.md").write_text(
+            "# edit_file\n\n"
+            "Replace text in a file.\n\n"
+            "## Parameters\n\n"
+            "- **path**: The file path to edit.\n"
+            "- **old_str**: The text to find in the file.\n"
+            "- **new_str**: The replacement text.\n\n"
+            "## Notes\n\n"
+            "The old_str must appear exactly once in the file.\n"
+            "Returns True on success.\n"
+        )
+        (docs_dir / "list_files.md").write_text(
+            "# list_files\n\n"
+            "List files in a directory.\n\n"
+            "## Parameters\n\n"
+            "- **directory**: The directory path to list.\n"
+            "- **recursive**: Whether to list recursively (default: false).\n\n"
+            "## Notes\n\n"
+            "Returns a list of file paths relative to the workspace.\n"
+        )
+        return {
+            "read_file": "docs/tools/read_file.md",
+            "edit_file": "docs/tools/edit_file.md",
+            "list_files": "docs/tools/list_files.md",
+        }
+
+    def test_bm25_ranks_specific_tool_higher(self, tmp_path):
+        """BM25 should rank 'read_file' docs higher for 'read file path'."""
+        proj = _project(tmp_path)
+        doc_refs = self._write_varied_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context("read file path")
+            assert len(result.sections) > 0
+            first_file = result.sections[0].file_path
+            assert "read_file" in first_file
+
+    def test_bm25_multiword_no_degradation(self, tmp_path):
+        """Multi-word queries should return results (ILIKE splits words)."""
+        proj = _project(tmp_path)
+        doc_refs = self._write_varied_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context("file not found error")
+            assert len(result.sections) > 0
+
+    def test_tool_filter_with_bm25(self, tmp_path):
+        """Tool filter narrows to tool-specific docs."""
+        proj = _project(tmp_path)
+        doc_refs = self._write_varied_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context(
+                "parameters", tool="edit_file",
+            )
+            for s in result.sections:
+                assert "edit_file" in s.file_path
+
+    def test_correction_hints_use_bm25(self, tmp_path):
+        """get_correction_hints should benefit from BM25 ranking."""
+        proj = _project(tmp_path)
+        doc_refs = self._write_varied_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            signal = session.get_correction_hints(
+                failure_mode="stdlib_leak",
+                tool="read_file",
+            )
+            doc_context = signal.get("doc_context", [])
+            assert len(doc_context) > 0
+            files = [d["file"] for d in doc_context]
+            assert any("read_file" in f for f in files)

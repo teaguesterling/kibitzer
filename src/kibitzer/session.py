@@ -531,7 +531,10 @@ class KibitzerSession:
             try:
                 plucker = Plucker(docs=f"{docs_root}/**/*.md", profile="analyst")
             except Exception:
-                return []
+                try:
+                    plucker = Plucker(docs=f"{docs_root}/**/*.md")
+                except Exception:
+                    return []
             registry["_plucker"] = plucker
 
         # Try FTS collection first (BM25 ranking)
