@@ -44,6 +44,7 @@ This creates:
 
 ## Documentation
 
+- [Tutorial](tutorial.md) — set up kibitzer for your terminal in 5 minutes
 - [Modes](modes.md) — the 6 modes and how path protection works
 - [Coach](coach.md) — what patterns the coach detects and when
 - [Interceptors](interceptors.md) — bash command interception and the observe/suggest/redirect ratchet
