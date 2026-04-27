@@ -1,6 +1,6 @@
 """Kibitzer — watches agent tool calls and suggests structured alternatives."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from kibitzer.docs import DocRefinement, DocResult, DocSection
 from kibitzer.failure_modes import ALL_MODES as FAILURE_MODES
