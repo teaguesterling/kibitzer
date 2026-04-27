@@ -516,7 +516,6 @@ class KibitzerSession:
         return DocResult(sections=candidates)
 
     def _retrieve_doc_sections(self, query, registry, tool=None):
-        from kibitzer.docs import DocSection
         try:
             from pluckit import Plucker
         except ImportError:
@@ -526,51 +525,64 @@ class KibitzerSession:
         if not docs_root:
             return []
 
-        try:
-            # Lazily build and cache the Plucker
-            if "_plucker" not in registry:
-                registry["_plucker"] = Plucker(
-                    docs=f"{docs_root}/**/*.md",
-                    profile="analyst",
-                )
+        # Lazy-build Plucker, cached on registry dict
+        plucker = registry.get("_plucker")
+        if plucker is None:
+            try:
+                plucker = Plucker(docs=f"{docs_root}/**/*.md", profile="analyst")
+            except Exception:
+                return []
+            registry["_plucker"] = plucker
 
-            plucker = registry["_plucker"]
+        # Try FTS collection first (BM25 ranking)
+        col = registry.get("_fts_col")
+        if col is None and not registry.get("_fts_failed"):
+            try:
+                col = self._build_doc_collection(plucker, registry)
+                registry["_fts_col"] = col
+            except Exception:
+                registry["_fts_failed"] = True
 
-            # Lazily build and cache the FTS collection
-            if "_fts_col" not in registry:
-                registry["_fts_col"] = self._build_doc_collection(
-                    plucker, registry,
-                )
+        if col is not None:
+            try:
+                return self._search_fts_collection(col, query, tool, registry)
+            except Exception:
+                pass
 
-            col = registry["_fts_col"]
+        # Fallback: ILIKE via DocSelection
+        return self._retrieve_doc_sections_ilike(plucker, query, tool, registry)
 
-            if tool:
-                # Tool-scoped: use direct DocSelection for precise file matching
-                doc_path = registry.get("refs", {}).get(tool)
-                if doc_path:
-                    docs = plucker.docs()
-                    docs = docs.filter(file_path=doc_path)
-                    if query:
-                        words = query.split()
-                        longest = max(words, key=len)
-                        docs = docs.filter(search=longest)
-                    raw_sections = docs.sections()
-                    return [
-                        DocSection(
-                            title=s.get("title", ""),
-                            content=str(s.get("content", "")),
-                            file_path=s.get("file_path", ""),
-                            level=s.get("level", 1),
-                            tool=tool,
-                        )
-                        for s in raw_sections
-                    ]
+    def _search_fts_collection(self, col, query, tool, registry):
+        """BM25 search across the FTS collection (or tool-scoped DocSelection)."""
+        from kibitzer.docs import DocSection
 
-            # BM25 search across all docs
-            results = col.search(query) if query else []
-        except Exception:
+        plucker = registry.get("_plucker")
+
+        if tool:
+            # Tool-scoped: use direct DocSelection for precise file matching
+            doc_path = registry.get("refs", {}).get(tool)
+            if doc_path and plucker is not None:
+                docs = plucker.docs()
+                docs = docs.filter(file_path=doc_path)
+                if query:
+                    words = query.split()
+                    longest = max(words, key=len)
+                    docs = docs.filter(search=longest)
+                raw_sections = docs.sections()
+                return [
+                    DocSection(
+                        title=s.get("title", ""),
+                        content=str(s.get("content", "")),
+                        file_path=s.get("file_path", ""),
+                        level=s.get("level", 1),
+                        tool=tool,
+                    )
+                    for s in raw_sections
+                ]
             return []
 
+        # BM25 search across all docs
+        results = col.search(query) if query else []
         sections = []
         for row in results:
             row_id, text, metadata, score = row
@@ -592,6 +604,55 @@ class KibitzerSession:
                 tool=tool_name,
             ))
         return sections
+
+    def _retrieve_doc_sections_ilike(self, plucker, query, tool, registry):
+        """Fallback retrieval using ILIKE (DocSelection.filter) when FTS is unavailable."""
+        from kibitzer.docs import DocSection
+
+        refs = registry.get("refs", {})
+        try:
+            if tool:
+                doc_path = refs.get(tool)
+                if not doc_path:
+                    return []
+                docs = plucker.docs()
+                docs = docs.filter(file_path=doc_path)
+                if query:
+                    words = query.split()
+                    longest = max(words, key=len)
+                    docs = docs.filter(search=longest)
+                raw_sections = docs.sections()
+                return [
+                    DocSection(
+                        title=s.get("title", ""),
+                        content=str(s.get("content", "")),
+                        file_path=s.get("file_path", ""),
+                        level=s.get("level", 1),
+                        tool=tool,
+                    )
+                    for s in raw_sections
+                ]
+
+            # No tool specified: search across all registered doc paths
+            if not query:
+                return []
+            words = query.split()
+            longest = max(words, key=len)
+            docs = plucker.docs()
+            docs = docs.filter(search=longest)
+            raw_sections = docs.sections()
+            return [
+                DocSection(
+                    title=s.get("title", ""),
+                    content=str(s.get("content", "")),
+                    file_path=s.get("file_path", ""),
+                    level=s.get("level", 1),
+                    tool=None,
+                )
+                for s in raw_sections
+            ]
+        except Exception:
+            return []
 
     def _build_doc_collection(self, plucker, registry):
         """Build the BM25 FTS collection from all registered doc sections."""

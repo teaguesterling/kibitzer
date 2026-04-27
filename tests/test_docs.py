@@ -292,6 +292,20 @@ class TestGetDocContext:
             )
             assert read_idx < edit_idx
 
+    def test_retrieval_works_without_fledgling(self, tmp_path):
+        """When FTS collection build fails, falls back to ILIKE search."""
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        from unittest.mock import patch
+
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            with patch.object(
+                session, "_build_doc_collection", side_effect=Exception("no fledgling")
+            ):
+                result = session.get_doc_context("read_file")
+                assert len(result.sections) > 0
+
 
 # --- Correction hints with docs ---
 
