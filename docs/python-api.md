@@ -269,7 +269,7 @@ result = session.get_doc_context(
 
 Three-step pipeline:
 
-1. **Retrieve** — pluckit searches registered docs. If a `tool` is specified and has a doc path, searches within that file. Multi-word queries try the full phrase first, then fall back to the longest word.
+1. **Retrieve** — on first call, kibitzer builds a named FTS collection from registered markdown files and uses BM25 ranking for search. The Plucker and collection are cached for the session's lifetime. When a `tool` is specified, results are scoped to that tool's doc file. Falls back to ILIKE substring matching when fledgling is unavailable.
 2. **Select** — if a `select` callback is provided (via `refinement` or `register_docs`), it filters and reorders the candidates. Otherwise, top-N by retrieval ranking.
 3. **Present** — if a `present` callback is provided, it transforms sections (e.g., summarize, reformat). Otherwise, raw content.
 

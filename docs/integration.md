@@ -89,10 +89,11 @@ All queries have a 5-second timeout. If fledgling is unavailable or a query fail
 - `Plucker(docs=glob).docs()` — discover and load markdown files
 - `.filter(search=term, file_path=path)` — ILIKE substring matching
 - `.sections()` — extract structured sections (title, content, file_path, level)
+- `.fts_collection(name)` — named BM25 collections with independent IDF statistics
 
 **How it's used:**
 
-Kibitzer's `get_doc_context()` pipeline uses pluckit for the mechanical retrieval step. Tool documentation paths are registered via `register_docs()` (typically from lackpy's tool catalog `docs_index`), and pluckit searches within those docs for sections relevant to the current failure or error.
+Kibitzer's `get_doc_context()` pipeline uses pluckit for doc retrieval. Tool documentation paths are registered via `register_docs()` (typically from lackpy's tool catalog `docs_index`). On first retrieval, kibitzer builds a named FTS collection from the registered markdown files and uses BM25 ranking for search. Falls back to ILIKE substring matching when fledgling is unavailable.
 
 ```python
 session.register_docs(
@@ -102,11 +103,9 @@ session.register_docs(
 result = session.get_doc_context("permission denied", tool="Edit")
 ```
 
-Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Without pluckit, `get_doc_context()` returns an empty `DocResult` — no degradation of existing behavior.
+Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Without pluckit, `get_doc_context()` returns an empty `DocResult` — no degradation of existing behavior. With pluckit + fledgling, retrieval uses BM25 ranking; with pluckit alone, retrieval falls back to ILIKE.
 
 **What kibitzer does NOT do:**
-- Does not index docs at storage time (retrieval is on-demand)
-- Does not provide FTS/semantic search (uses pluckit's ILIKE with multi-word fallback)
 - Does not decide which sections matter — that's the consumer's `select` callback
 
 ## Umwelt
