@@ -538,15 +538,15 @@ class KibitzerSession:
 
             # Lazily build and cache the FTS collection
             if "_fts_col" not in registry:
-                col = plucker.fts_collection("kibitzer_docs")
-                self._build_doc_collection(col, plucker, registry)
-                registry["_fts_col"] = col
+                registry["_fts_col"] = self._build_doc_collection(
+                    plucker, registry,
+                )
 
             col = registry["_fts_col"]
 
             if tool:
-                # Tool-scoped: fall back to direct DocSelection filtering
-                doc_path = registry["refs"].get(tool)
+                # Tool-scoped: use direct DocSelection for precise file matching
+                doc_path = registry.get("refs", {}).get(tool)
                 if doc_path:
                     docs = plucker.docs()
                     docs = docs.filter(file_path=doc_path)
@@ -571,17 +571,9 @@ class KibitzerSession:
         except Exception:
             return []
 
-        # Build a reverse map: absolute file_path -> tool name
-        refs = registry.get("refs", {})
-        path_to_tool = {
-            (f"{docs_root}/{v}" if not v.startswith("/") else v): k
-            for k, v in refs.items()
-        }
-
         sections = []
         for row in results:
             row_id, text, metadata, score = row
-            # metadata is a dict (DuckDB MAP fetched as Python dict)
             meta = metadata if isinstance(metadata, dict) else {}
             file_path = meta.get("file_path", "")
             title = meta.get("title", "")
@@ -590,24 +582,22 @@ class KibitzerSession:
                 level = int(level_str)
             except (ValueError, TypeError):
                 level = 1
-            # Extract content: text is "{title}\n{content}"
             content = text[len(title) + 1:] if text.startswith(title + "\n") else text
-            resolved_tool = path_to_tool.get(file_path) or meta.get("tool", "")
+            tool_name = meta.get("tool", "") or None
             sections.append(DocSection(
                 title=title,
                 content=content,
                 file_path=file_path,
                 level=level,
-                tool=resolved_tool or None,
+                tool=tool_name,
             ))
         return sections
 
-    def _build_doc_collection(self, col, plucker, registry):
+    def _build_doc_collection(self, plucker, registry):
         """Build the BM25 FTS collection from all registered doc sections."""
         docs_root = registry.get("root", "")
         refs = registry.get("refs", {})
 
-        # Build a reverse map from absolute file path -> tool name
         path_to_tool = {}
         for tool_name, rel_path in refs.items():
             if rel_path:
@@ -618,10 +608,14 @@ class KibitzerSession:
                 path_to_tool[abs_path] = tool_name
 
         raw_sections = plucker.docs().sections()
+        col = plucker.fts_collection("kibitzer_docs")
+
         if not raw_sections:
-            # Create an empty collection so subsequent searches don't error
             col.create("SELECT '' AS id, '' AS text, map{} AS metadata WHERE false")
-            return
+            return col
+
+        def esc(v):
+            return str(v).replace("'", "''")
 
         rows = []
         for s in raw_sections:
@@ -635,10 +629,6 @@ class KibitzerSession:
             row_id = f"{file_path}:{start_line}"
             text = f"{title}\n{content}"
 
-            # Escape single quotes for SQL string literals
-            def esc(v):
-                return str(v).replace("'", "''")
-
             rows.append(
                 f"SELECT '{esc(row_id)}' AS id, '{esc(text)}' AS text, "
                 f"map{{"
@@ -651,6 +641,7 @@ class KibitzerSession:
 
         source_query = " UNION ALL ".join(rows)
         col.create(source_query)
+        return col
 
     def _retrieve_from_context7(self, query: str) -> list:
         """Fallback: search Context7 for external library documentation.
