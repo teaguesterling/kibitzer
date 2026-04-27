@@ -274,6 +274,24 @@ class TestGetDocContext:
             )
             assert isinstance(result.sections, list)
 
+    def test_multiword_query_finds_results(self, tmp_path):
+        """BM25 handles multi-word queries without the ILIKE word-splitting hack."""
+        proj = _project(tmp_path)
+        doc_refs = _write_tool_docs(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context("read file path")
+            assert len(result.sections) > 0
+            # BM25 should rank read_file docs higher than edit_file
+            files = [s.file_path for s in result.sections]
+            read_idx = next(
+                (i for i, f in enumerate(files) if "read_file" in f), len(files)
+            )
+            edit_idx = next(
+                (i for i, f in enumerate(files) if "edit_file" in f), len(files)
+            )
+            assert read_idx < edit_idx
+
 
 # --- Correction hints with docs ---
 

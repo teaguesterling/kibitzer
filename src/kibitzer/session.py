@@ -527,43 +527,130 @@ class KibitzerSession:
             return []
 
         try:
-            p = Plucker(docs=f"{docs_root}/**/*.md")
-            docs = p.docs()
+            # Lazily build and cache the Plucker
+            if "_plucker" not in registry:
+                registry["_plucker"] = Plucker(
+                    docs=f"{docs_root}/**/*.md",
+                    profile="analyst",
+                )
+
+            plucker = registry["_plucker"]
+
+            # Lazily build and cache the FTS collection
+            if "_fts_col" not in registry:
+                col = plucker.fts_collection("kibitzer_docs")
+                self._build_doc_collection(col, plucker, registry)
+                registry["_fts_col"] = col
+
+            col = registry["_fts_col"]
 
             if tool:
+                # Tool-scoped: fall back to direct DocSelection filtering
                 doc_path = registry["refs"].get(tool)
                 if doc_path:
+                    docs = plucker.docs()
                     docs = docs.filter(file_path=doc_path)
-
-            if query:
-                # ILIKE needs exact substring — search each word separately
-                # to handle multi-word queries like "read file"
-                words = query.split()
-                if len(words) == 1:
-                    docs = docs.filter(search=words[0])
-                else:
-                    # Try full query first, fall back to longest word
-                    full = docs.filter(search=query)
-                    if full.sections():
-                        docs = full
-                    else:
+                    if query:
+                        words = query.split()
                         longest = max(words, key=len)
                         docs = docs.filter(search=longest)
+                    raw_sections = docs.sections()
+                    return [
+                        DocSection(
+                            title=s.get("title", ""),
+                            content=str(s.get("content", "")),
+                            file_path=s.get("file_path", ""),
+                            level=s.get("level", 1),
+                            tool=tool,
+                        )
+                        for s in raw_sections
+                    ]
 
-            raw_sections = docs.sections()
+            # BM25 search across all docs
+            results = col.search(query) if query else []
         except Exception:
             return []
 
-        return [
-            DocSection(
-                title=s.get("title", ""),
-                content=str(s.get("content", "")),
-                file_path=s.get("file_path", ""),
-                level=s.get("level", 1),
-                tool=tool,
+        # Build a reverse map: absolute file_path -> tool name
+        refs = registry.get("refs", {})
+        path_to_tool = {
+            (f"{docs_root}/{v}" if not v.startswith("/") else v): k
+            for k, v in refs.items()
+        }
+
+        sections = []
+        for row in results:
+            row_id, text, metadata, score = row
+            # metadata is a dict (DuckDB MAP fetched as Python dict)
+            meta = metadata if isinstance(metadata, dict) else {}
+            file_path = meta.get("file_path", "")
+            title = meta.get("title", "")
+            level_str = meta.get("level", "1")
+            try:
+                level = int(level_str)
+            except (ValueError, TypeError):
+                level = 1
+            # Extract content: text is "{title}\n{content}"
+            content = text[len(title) + 1:] if text.startswith(title + "\n") else text
+            resolved_tool = path_to_tool.get(file_path) or meta.get("tool", "")
+            sections.append(DocSection(
+                title=title,
+                content=content,
+                file_path=file_path,
+                level=level,
+                tool=resolved_tool or None,
+            ))
+        return sections
+
+    def _build_doc_collection(self, col, plucker, registry):
+        """Build the BM25 FTS collection from all registered doc sections."""
+        docs_root = registry.get("root", "")
+        refs = registry.get("refs", {})
+
+        # Build a reverse map from absolute file path -> tool name
+        path_to_tool = {}
+        for tool_name, rel_path in refs.items():
+            if rel_path:
+                abs_path = (
+                    rel_path if rel_path.startswith("/")
+                    else f"{docs_root}/{rel_path}"
+                )
+                path_to_tool[abs_path] = tool_name
+
+        raw_sections = plucker.docs().sections()
+        if not raw_sections:
+            # Create an empty collection so subsequent searches don't error
+            col.create("SELECT '' AS id, '' AS text, map{} AS metadata WHERE false")
+            return
+
+        rows = []
+        for s in raw_sections:
+            file_path = s.get("file_path", "")
+            start_line = s.get("start_line", 0)
+            title = str(s.get("title", ""))
+            content = str(s.get("content", ""))
+            level = s.get("level", 1)
+            tool_name = path_to_tool.get(file_path, "")
+
+            row_id = f"{file_path}:{start_line}"
+            text = f"{title}\n{content}"
+
+            # Escape single quotes for SQL string literals
+            def esc(v):
+                return str(v).replace("'", "''")
+
+            rows.append(
+                f"SELECT '{esc(row_id)}' AS id, '{esc(text)}' AS text, "
+                f"map{{"
+                f"'file_path': '{esc(file_path)}', "
+                f"'title': '{esc(title)}', "
+                f"'tool': '{esc(tool_name)}', "
+                f"'level': '{esc(level)}'"
+                f"}} AS metadata"
             )
-            for s in raw_sections
-        ]
+
+        source_query = " UNION ALL ".join(rows)
+        col.create(source_query)
 
     def _retrieve_from_context7(self, query: str) -> list:
         """Fallback: search Context7 for external library documentation.
