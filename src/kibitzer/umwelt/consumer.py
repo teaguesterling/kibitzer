@@ -83,7 +83,8 @@ class PolicyConsumer:
         if cache_key in self._mode_cache:
             return self._mode_cache[cache_key]
 
-        props = self._engine.resolve(type="mode", id=mode, mode=active_mode)
+        ctx = {"mode": active_mode} if active_mode else {}
+        props = self._engine.resolve(type="mode", id=mode, context=ctx)
         if not props or not isinstance(props, dict):
             return None
 
@@ -105,8 +106,9 @@ class PolicyConsumer:
     def list_modes(self, active_mode: str | None = None) -> list[str]:
         """Return all mode IDs defined in the policy."""
         try:
+            ctx = {"mode": active_mode} if active_mode else {}
             all_modes = self._engine.resolve_all(
-                type="mode", mode=active_mode,
+                type="mode", context=ctx,
             )
             return [
                 m.get("entity_id", "")
@@ -127,8 +129,9 @@ class PolicyConsumer:
                 Mode-scoped tool rules (e.g. "allow Bash only in free
                 mode") only apply when that mode is active.
         """
+        ctx = {"mode": active_mode} if active_mode else {}
         props = self._engine.resolve(
-            type="tool", id=tool_name, mode=active_mode,
+            type="tool", id=tool_name, context=ctx,
         )
         if not props or not isinstance(props, dict):
             return {}
