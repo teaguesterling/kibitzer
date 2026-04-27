@@ -87,7 +87,7 @@ kibitzer: consider: blq run test
 
 ## Shell prompt integration
 
-Add the kibitzer mode indicator to your shell prompt. The snippet reads `.kibitzer/state.json` directly — no Python invocation on every prompt render.
+Add the kibitzer mode indicator to your shell prompt. The snippet uses a single `python3 -c` invocation to parse `.kibitzer/state.json` and sanitizes the output before rendering.
 
 ### Setup
 
@@ -184,8 +184,8 @@ SELECT * FROM events WHERE source = 'agent';
 ## Architecture
 
 ```
-Shell prompt ──── _kibitzer_prompt()  ──── reads state.json (no Python)
-                                            ~2ms per prompt
+Shell prompt ──── _kibitzer_prompt()  ──── one python3 -c invocation
+                                            reads state.json, ~50ms
 
 Shell command ─── _kibitzer_preexec() ──── pattern match in shell
                         │                   selective Python invocation
@@ -197,4 +197,4 @@ Git commit ────── pre-commit hook ──────── kibitzer 
 CLI ───────────── kibitzer mode/status ─── direct state read/write
 ```
 
-The shell prompt layer is pure shell — it reads `state.json` with a single `python3 -c` invocation. The coaching and validation layers invoke Python only when needed. This keeps the fast path fast.
+The shell prompt layer uses a single `python3 -c` invocation to parse `state.json` (typically ~50ms for a cold Python start). The coaching layer only invokes Python for commands that match known patterns (git, pytest). The validation layer runs once per commit.

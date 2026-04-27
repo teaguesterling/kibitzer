@@ -46,8 +46,10 @@ class KibitzerStore:
         for sql in _MIGRATIONS:
             try:
                 con.execute(sql)
-            except sqlite3.OperationalError:
-                pass
+            except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e):
+                    continue
+                raise
 
     def append_event(
         self,

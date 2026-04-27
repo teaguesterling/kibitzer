@@ -1,6 +1,7 @@
 """Tests for human-facing CLI commands and shell hooks."""
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -178,12 +179,21 @@ class TestValidateStaged:
                 result = runner.invoke(cli, ["validate-staged"])
             assert result.exit_code != 0
 
+    def test_git_timeout(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            _init_project(td)
+            with patch("subprocess.run",
+                        side_effect=subprocess.TimeoutExpired("git", 10)):
+                result = runner.invoke(cli, ["validate-staged"])
+            assert result.exit_code != 0
+            assert "timed out" in result.output
+
 
 class TestShellPost:
     def test_no_output_for_uninteresting_command(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
             _init_project(td)
-            result = runner.invoke(cli, ["shell-post", "ls -la"],
+            result = runner.invoke(cli, ["shell-post", "ls", "-la"],
                                    catch_exceptions=False)
             assert result.exit_code == 0
             assert result.output == ""
@@ -192,17 +202,41 @@ class TestShellPost:
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
             _init_project(td)
             with patch("shutil.which", return_value="/usr/bin/jetsam"):
-                result = runner.invoke(cli, ["shell-post", "git commit -m fix"],
-                                       catch_exceptions=False)
+                result = runner.invoke(
+                    cli, ["shell-post", "git", "commit", "-m", "fix"],
+                    catch_exceptions=False,
+                )
             assert result.exit_code == 0
+            assert "jetsam save" in result.output
 
     def test_suggests_blq_for_pytest(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
             _init_project(td)
             with patch("shutil.which", return_value="/usr/bin/blq"):
-                result = runner.invoke(cli, ["shell-post", "pytest tests/"],
-                                       catch_exceptions=False)
+                result = runner.invoke(
+                    cli, ["shell-post", "pytest", "tests/"],
+                    catch_exceptions=False,
+                )
             assert result.exit_code == 0
+            assert "blq run test" in result.output
+
+    def test_accepts_quoted_single_arg(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            _init_project(td)
+            result = runner.invoke(cli, ["shell-post", "ls -la"],
+                                   catch_exceptions=False)
+            assert result.exit_code == 0
+
+    def test_no_suggestion_without_tool(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            _init_project(td)
+            with patch("shutil.which", return_value=None):
+                result = runner.invoke(
+                    cli, ["shell-post", "git", "commit", "-m", "fix"],
+                    catch_exceptions=False,
+                )
+            assert result.exit_code == 0
+            assert "consider:" not in result.output
 
 
 class TestInitShell:
@@ -212,6 +246,7 @@ class TestInitShell:
             assert result.exit_code == 0
             assert "_kibitzer_prompt" in result.output
             assert "_kibitzer_preexec" in result.output
+            assert "Kibitzer initialized." in result.output
 
     def test_git_hooks_creates_pre_commit(self, runner, tmp_path):
         with runner.isolated_filesystem(temp_dir=tmp_path) as td:
@@ -219,6 +254,20 @@ class TestInitShell:
             result = runner.invoke(cli, ["init", "--git-hooks"],
                                    catch_exceptions=False)
             assert result.exit_code == 0
+            hook = Path(td) / ".git" / "hooks" / "pre-commit"
+            assert hook.exists()
+            assert "kibitzer" in hook.read_text()
+
+    def test_combined_shell_and_git_hooks(self, runner, tmp_path):
+        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+            (Path(td) / ".git" / "hooks").mkdir(parents=True)
+            result = runner.invoke(
+                cli, ["init", "--shell", "--git-hooks"],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0
+            assert "_kibitzer_prompt" in result.output
+            assert "Kibitzer initialized." in result.output
             hook = Path(td) / ".git" / "hooks" / "pre-commit"
             assert hook.exists()
             assert "kibitzer" in hook.read_text()
@@ -267,3 +316,16 @@ class TestStoreSource:
         store.init()
         events = store.query_events(event_type="old_event")
         assert events[0]["source"] == "agent"
+
+
+class TestSessionLogEvent:
+    def test_log_event_public_api(self, tmp_path):
+        from kibitzer.session import KibitzerSession
+        with KibitzerSession(project_dir=tmp_path) as session:
+            session.log_event("test_event", data='{"key": "val"}', source="shell")
+        from kibitzer.store import KibitzerStore
+        store = KibitzerStore(tmp_path / ".kibitzer" / "store.sqlite")
+        store.init()
+        events = store.query_events(event_type="test_event")
+        assert len(events) == 1
+        assert events[0]["source"] == "shell"

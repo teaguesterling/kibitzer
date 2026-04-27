@@ -31,8 +31,17 @@ _kibitzer_prompt() {
     local state_file=".kibitzer/state.json"
     if [[ -f "$state_file" ]]; then
         local mode fails
-        mode=$(python3 -c "import json; d=json.load(open('$state_file')); print(d.get('mode',''))" 2>/dev/null)
-        fails=$(python3 -c "import json; d=json.load(open('$state_file')); print(d.get('consecutive_failures',0))" 2>/dev/null)
+        eval "$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$state_file'))
+    m = str(d.get('mode', '')).replace(\"'\", '')
+    f = int(d.get('consecutive_failures', 0))
+    print(f\"mode='{m}' fails={f}\")
+except Exception:
+    print(\"mode='' fails=0\")
+" 2>/dev/null)"
+        mode=${mode//[^a-zA-Z0-9_-]/}
         if [[ -n "$mode" ]]; then
             local indicator="$mode"
             if [[ "$fails" -ge 3 ]]; then

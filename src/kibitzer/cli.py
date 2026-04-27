@@ -61,12 +61,11 @@ def init(hooks: bool, mcp: bool, shell: bool, git_hooks: bool):
         hook_path = write_git_pre_commit_hook(project_dir)
         click.echo(f"Created {hook_path}")
 
+    click.echo("Kibitzer initialized.")
+
     if shell:
         from kibitzer.hooks.templates import shell_integration_snippet
         click.echo(shell_integration_snippet())
-        return
-
-    click.echo("Kibitzer initialized.")
 
 
 def _merge_settings(project_dir: Path, pre_path: Path, post_path: Path) -> None:
@@ -237,6 +236,8 @@ def validate_staged(fmt: str):
         staged = [f.strip() for f in result.stdout.splitlines() if f.strip()]
     except FileNotFoundError:
         raise click.ClickException("git not found")
+    except subprocess.TimeoutExpired:
+        raise click.ClickException("git diff --cached timed out")
 
     if not staged:
         if fmt == "json":
@@ -265,10 +266,11 @@ def validate_staged(fmt: str):
         raise SystemExit(1)
 
 
-@cli.command(name="shell-post")
-@click.argument("command_line")
-def shell_post(command_line: str):
+@cli.command(name="shell-post", context_settings={"ignore_unknown_options": True})
+@click.argument("command_parts", nargs=-1, type=click.UNPROCESSED, required=True)
+def shell_post(command_parts: tuple[str, ...]):
     """Coaching feedback for a shell command. Called from preexec/precmd hooks."""
+    command_line = " ".join(command_parts)
     session = _open_session()
     suggestions = _coach_shell_command(session, command_line)
     if suggestions:
@@ -311,13 +313,10 @@ def _coach_shell_command(session, command_line: str) -> list[str]:
         except Exception:
             pass
 
-    if session._store:
-        session._store.append_event(
-            event_type="shell_command",
-            session_id=session._state.get("session_id"),
-            mode=session.mode,
-            data=json.dumps({"command": command_line}),
-            source="shell",
-        )
+    session.log_event(
+        event_type="shell_command",
+        data=json.dumps({"command": command_line}),
+        source="shell",
+    )
 
     return suggestions

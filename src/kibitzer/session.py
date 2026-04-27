@@ -147,6 +147,22 @@ class KibitzerSession:
         state_dir = self._project_dir / ".kibitzer"
         save_state(self._state, state_dir)
 
+    def log_event(
+        self,
+        event_type: str,
+        data: str | None = None,
+        source: str = "agent",
+    ) -> None:
+        """Append an event to the store. Public API for external callers."""
+        if self._store:
+            self._store.append_event(
+                event_type=event_type,
+                session_id=self._state.get("session_id"),
+                mode=self.mode,
+                data=data,
+                source=source,
+            )
+
     # --- Properties ---
 
     @property
