@@ -443,14 +443,29 @@ class KibitzerSession:
         """Register tool documentation references for contextual search.
 
         Args:
-            doc_refs: tool name -> relative doc path (from lackpy docs_index).
+            doc_refs: tool name -> doc path, optionally with ``#anchor``
+                suffix to scope to a specific section (e.g.
+                ``"tools/edit.md#permissions"``).  The anchor is a
+                ``section_id`` from ``read_markdown_sections``.
             docs_root: Root directory to resolve relative paths.
             namespace: Namespace to register under (defaults to session namespace).
             refinement: Default DocRefinement for this namespace's docs.
         """
         ns = self._resolve_namespace(namespace)
+        refs = {}
+        anchors = {}
+        for tool_name, raw_path in doc_refs.items():
+            if not raw_path:
+                continue
+            if "#" in raw_path:
+                path, anchor = raw_path.rsplit("#", 1)
+                refs[tool_name] = path
+                anchors[tool_name] = anchor
+            else:
+                refs[tool_name] = raw_path
         self._doc_registry[ns] = {
-            "refs": {k: v for k, v in doc_refs.items() if v},
+            "refs": refs,
+            "anchors": anchors,
             "root": docs_root,
             "refinement": refinement,
         }
@@ -556,36 +571,31 @@ class KibitzerSession:
         return self._retrieve_doc_sections_ilike(plucker, query, tool, registry)
 
     def _search_fts_collection(self, col, query, tool, registry):
-        """BM25 search across the FTS collection (or tool-scoped DocSelection)."""
+        """BM25 search across the FTS collection, optionally scoped by tool/anchor."""
         from kibitzer.docs import DocSection
 
-        plucker = registry.get("_plucker")
-
-        if tool:
-            # Tool-scoped: use direct DocSelection for precise file matching
-            doc_path = registry.get("refs", {}).get(tool)
-            if doc_path and plucker is not None:
-                docs = plucker.docs()
-                docs = docs.filter(file_path=doc_path)
-                if query:
-                    words = query.split()
-                    longest = max(words, key=len)
-                    docs = docs.filter(search=longest)
-                raw_sections = docs.sections()
-                return [
-                    DocSection(
-                        title=s.get("title", ""),
-                        content=str(s.get("content", "")),
-                        file_path=s.get("file_path", ""),
-                        level=s.get("level", 1),
-                        tool=tool,
-                    )
-                    for s in raw_sections
-                ]
-            return []
-
-        # BM25 search across all docs
         results = col.search(query) if query else []
+
+        # Build scope filter from tool ref + optional anchor
+        scope_file = None
+        scope_section_path = None
+        if tool:
+            doc_path = registry.get("refs", {}).get(tool)
+            if doc_path:
+                docs_root = registry.get("root", "")
+                scope_file = (
+                    doc_path if doc_path.startswith("/")
+                    else f"{docs_root}/{doc_path}"
+                )
+            anchor = registry.get("anchors", {}).get(tool)
+            if anchor and scope_file:
+                for row in results:
+                    meta = row[2] if isinstance(row[2], dict) else {}
+                    if (meta.get("file_path") == scope_file
+                            and meta.get("section_id") == anchor):
+                        scope_section_path = meta.get("section_path")
+                        break
+
         sections = []
         for row in results:
             row_id, text, metadata, score = row
@@ -593,12 +603,21 @@ class KibitzerSession:
             file_path = meta.get("file_path", "")
             title = meta.get("title", "")
             level_str = meta.get("level", "1")
+
+            # Apply scope filters
+            if scope_file and file_path != scope_file:
+                continue
+            if scope_section_path:
+                sp = meta.get("section_path", "")
+                if not sp.startswith(scope_section_path):
+                    continue
+
             try:
                 level = int(level_str)
             except (ValueError, TypeError):
                 level = 1
             content = text[len(title) + 1:] if text.startswith(title + "\n") else text
-            tool_name = meta.get("tool", "") or None
+            tool_name = meta.get("tool", "") or tool or None
             sections.append(DocSection(
                 title=title,
                 content=content,
@@ -658,9 +677,15 @@ class KibitzerSession:
             return []
 
     def _build_doc_collection(self, plucker, registry):
-        """Build the BM25 FTS collection from all registered doc sections."""
+        """Build the BM25 FTS collection from all registered doc sections.
+
+        Uses ``read_markdown_sections`` with ``content_mode='full'`` so each
+        section's text includes all descendant content.  Row IDs use the
+        ``file_path#section_id`` anchor format.
+        """
         docs_root = registry.get("root", "")
         refs = registry.get("refs", {})
+        docs_glob = f"{docs_root}/**/*.md"
 
         path_to_tool = {}
         for tool_name, rel_path in refs.items():
@@ -671,32 +696,39 @@ class KibitzerSession:
                 )
                 path_to_tool[abs_path] = tool_name
 
-        raw_sections = plucker.docs().sections()
         col = plucker.fts_collection("kibitzer_docs")
+
+        def esc(v):
+            return str(v).replace("'", "''")
+
+        con = plucker.connection
+        try:
+            raw_sections = con.execute(
+                "SELECT file_path, section_id, section_path, title, content, level "
+                "FROM read_markdown_sections(?, "
+                "include_filepath := true, include_content := true, "
+                "content_mode := 'full')",
+                [docs_glob],
+            ).fetchall()
+        except Exception:
+            raw_sections = []
 
         if not raw_sections:
             col.create("SELECT '' AS id, '' AS text, map{} AS metadata WHERE false")
             return col
 
-        def esc(v):
-            return str(v).replace("'", "''")
-
         rows = []
-        for s in raw_sections:
-            file_path = s.get("file_path", "")
-            start_line = s.get("start_line", 0)
-            title = str(s.get("title", ""))
-            content = str(s.get("content", ""))
-            level = s.get("level", 1)
+        for file_path, section_id, section_path, title, content, level in raw_sections:
             tool_name = path_to_tool.get(file_path, "")
-
-            row_id = f"{file_path}:{start_line}"
-            text = f"{title}\n{content}"
+            row_id = f"{file_path}#{section_id}"
+            text = f"{title}\n{content}" if content else title
 
             rows.append(
                 f"SELECT '{esc(row_id)}' AS id, '{esc(text)}' AS text, "
                 f"map{{"
                 f"'file_path': '{esc(file_path)}', "
+                f"'section_id': '{esc(section_id)}', "
+                f"'section_path': '{esc(section_path)}', "
                 f"'title': '{esc(title)}', "
                 f"'tool': '{esc(tool_name)}', "
                 f"'level': '{esc(level)}'"

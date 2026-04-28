@@ -639,3 +639,118 @@ class TestBm25DocRetrieval:
             assert len(doc_context) > 0
             files = [d["file"] for d in doc_context]
             assert any("read_file" in f for f in files)
+
+
+class TestAnchorDocRetrieval:
+    """Tests for section anchor scoping in doc refs."""
+
+    def _write_multi_section_docs(self, root):
+        """Create a doc with multiple sections to test anchor scoping."""
+        docs_dir = root / "docs" / "tools"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "edit_file.md").write_text(
+            "# edit_file\n\n"
+            "Replace text in a file.\n\n"
+            "## Parameters\n\n"
+            "- **path**: File to edit.\n"
+            "- **old_str**: Text to find.\n"
+            "- **new_str**: Replacement text.\n\n"
+            "## Permissions\n\n"
+            "The path must be within the workspace.\n"
+            "Paths outside the sandbox are denied.\n"
+            "Write permission is required for the target directory.\n\n"
+            "### Sandbox Rules\n\n"
+            "Only paths under the project root are writable.\n"
+            "System paths like /etc are always blocked.\n\n"
+            "## Error Handling\n\n"
+            "- FileNotFoundError if path does not exist.\n"
+            "- PermissionError if sandbox denies access.\n"
+        )
+        (docs_dir / "read_file.md").write_text(
+            "# read_file\n\n"
+            "Read a file from the workspace.\n\n"
+            "## Parameters\n\n"
+            "- **path**: The file path to read.\n\n"
+            "## Permissions\n\n"
+            "Read access is always granted for workspace files.\n"
+            "Binary files are rejected.\n\n"
+            "## Error Handling\n\n"
+            "- FileNotFoundError if path does not exist.\n"
+        )
+        return docs_dir
+
+    def test_anchor_scopes_to_section(self, tmp_path):
+        """Anchor ref should scope search to the specified section subtree."""
+        proj = _project(tmp_path)
+        docs_dir = self._write_multi_section_docs(tmp_path)
+        doc_refs = {
+            "edit_file": "docs/tools/edit_file.md#permissions",
+            "read_file": "docs/tools/read_file.md",
+        }
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context(
+                "sandbox denied access", tool="edit_file",
+            )
+            assert len(result.sections) > 0
+            for s in result.sections:
+                assert "edit_file" in s.file_path
+
+    def test_anchor_includes_children(self, tmp_path):
+        """content_mode='full' means the anchor section includes child content."""
+        proj = _project(tmp_path)
+        self._write_multi_section_docs(tmp_path)
+        doc_refs = {
+            "edit_file": "docs/tools/edit_file.md#permissions",
+        }
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context(
+                "project root writable", tool="edit_file",
+            )
+            assert len(result.sections) > 0
+            all_content = " ".join(s.content for s in result.sections)
+            assert "sandbox" in all_content.lower() or "writable" in all_content.lower()
+
+    def test_anchor_excludes_other_sections(self, tmp_path):
+        """Anchor scoping should not return sections outside the anchor subtree."""
+        proj = _project(tmp_path)
+        self._write_multi_section_docs(tmp_path)
+        doc_refs = {
+            "edit_file": "docs/tools/edit_file.md#permissions",
+        }
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context(
+                "parameters old_str new_str", tool="edit_file",
+            )
+            # "parameters" section is outside #permissions — should not appear
+            for s in result.sections:
+                assert "old_str" not in s.title.lower()
+
+    def test_no_anchor_returns_whole_file(self, tmp_path):
+        """Without anchor, tool-scoped search returns results from any section."""
+        proj = _project(tmp_path)
+        self._write_multi_section_docs(tmp_path)
+        doc_refs = {
+            "edit_file": "docs/tools/edit_file.md",
+        }
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(doc_refs, docs_root=str(tmp_path))
+            result = session.get_doc_context(
+                "parameters path old_str", tool="edit_file",
+            )
+            assert len(result.sections) > 0
+
+    def test_anchor_parsed_from_ref(self, tmp_path):
+        """register_docs should parse '#anchor' from the ref path."""
+        proj = _project(tmp_path)
+        with KibitzerSession(project_dir=proj) as session:
+            session.register_docs(
+                {"edit": "tools/edit.md#permissions"},
+                docs_root="/fake",
+            )
+            ns = session._resolve_namespace(None)
+            reg = session._doc_registry[ns]
+            assert reg["refs"]["edit"] == "tools/edit.md"
+            assert reg["anchors"]["edit"] == "permissions"

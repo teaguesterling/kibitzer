@@ -238,7 +238,7 @@ pip install kibitzer[pluckit]
 
 ```python
 session.register_docs(
-    doc_refs: dict[str, str | None],  # tool name -> relative doc path
+    doc_refs: dict[str, str | None],  # tool name -> doc path, optional #anchor
     docs_root: str | None = None,     # root dir for resolving paths
     namespace=<session default>,      # namespace to register under
     refinement: DocRefinement | None = None,  # default callbacks
@@ -247,9 +247,15 @@ session.register_docs(
 
 Register tool documentation references. Typically called once during initialization with the tool catalog's `docs_index`.
 
+Doc refs can include a `#section_id` anchor to scope a tool's docs to a specific markdown section (and its children). The `section_id` corresponds to the slugified heading from DuckDB's `read_markdown_sections`.
+
 ```python
 session.register_docs(
-    doc_refs={"Read": "tools/read.md", "Edit": "tools/edit.md", "Bash": None},
+    doc_refs={
+        "Read": "tools/read.md",
+        "Edit": "tools/edit.md#permissions",  # scoped to ## Permissions
+        "Bash": None,
+    },
     docs_root="/path/to/project/docs",
 )
 ```
@@ -269,7 +275,7 @@ result = session.get_doc_context(
 
 Three-step pipeline:
 
-1. **Retrieve** — on first call, kibitzer builds a named FTS collection from registered markdown files and uses BM25 ranking for search. The Plucker and collection are cached for the session's lifetime. When a `tool` is specified, results are scoped to that tool's doc file. Falls back to ILIKE substring matching when fledgling is unavailable.
+1. **Retrieve** — on first call, kibitzer builds a named FTS collection from registered markdown files using `content_mode='full'` (each section includes all descendant content) and BM25 ranking. The collection is cached for the session's lifetime. When a `tool` is specified, results are scoped to that tool's doc file; if the ref includes a `#anchor`, results are further scoped to that section's subtree. Falls back to ILIKE substring matching when fledgling is unavailable.
 2. **Select** — if a `select` callback is provided (via `refinement` or `register_docs`), it filters and reorders the candidates. Otherwise, top-N by retrieval ranking.
 3. **Present** — if a `present` callback is provided, it transforms sections (e.g., summarize, reformat). Otherwise, raw content.
 

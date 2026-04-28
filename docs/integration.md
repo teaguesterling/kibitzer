@@ -86,24 +86,26 @@ All queries have a 5-second timeout. If fledgling is unavailable or a query fail
 [Pluckit](https://github.com/teague/pluckit) provides structured access to markdown documentation — glob-based doc discovery, ILIKE search, and section extraction.
 
 **What kibitzer uses from pluckit:**
-- `Plucker(docs=glob).docs()` — discover and load markdown files
-- `.filter(search=term, file_path=path)` — ILIKE substring matching
-- `.sections()` — extract structured sections (title, content, file_path, level)
-- `.fts_collection(name)` — named BM25 collections with independent IDF statistics
+- `Plucker.connection` — access to the underlying DuckDB connection for `read_markdown_sections`
+- `Plucker.fts_collection(name)` — named BM25 collections with independent IDF statistics
+- `Plucker.docs()` — ILIKE fallback when fledgling is unavailable
 
 **How it's used:**
 
-Kibitzer's `get_doc_context()` pipeline uses pluckit for doc retrieval. Tool documentation paths are registered via `register_docs()` (typically from lackpy's tool catalog `docs_index`). On first retrieval, kibitzer builds a named FTS collection from the registered markdown files and uses BM25 ranking for search. Falls back to ILIKE substring matching when fledgling is unavailable.
+Kibitzer's `get_doc_context()` pipeline uses pluckit for doc retrieval. Tool documentation paths are registered via `register_docs()` (typically from lackpy's tool catalog `docs_index`). On first retrieval, kibitzer calls `read_markdown_sections` with `content_mode='full'` (each section includes all descendant content), builds a named FTS collection, and uses BM25 ranking for search. Doc refs can include a `#section_id` anchor to scope a tool's docs to a specific section subtree. Falls back to ILIKE substring matching when fledgling is unavailable.
 
 ```python
 session.register_docs(
-    doc_refs={"Read": "tools/read.md", "Edit": "tools/edit.md"},
+    doc_refs={
+        "Read": "tools/read.md",
+        "Edit": "tools/edit.md#permissions",  # scoped to ## Permissions subtree
+    },
     docs_root="/path/to/docs",
 )
 result = session.get_doc_context("permission denied", tool="Edit")
 ```
 
-Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Without pluckit, `get_doc_context()` returns an empty `DocResult` — no degradation of existing behavior. With pluckit + fledgling, retrieval uses BM25 ranking; with pluckit alone, retrieval falls back to ILIKE.
+Install with `pip install kibitzer[pluckit]` for the doc context pipeline. Without pluckit, `get_doc_context()` returns an empty `DocResult` — no degradation of existing behavior. With pluckit + fledgling, retrieval uses BM25 ranking with `content_mode='full'`; with pluckit alone, retrieval falls back to ILIKE.
 
 **What kibitzer does NOT do:**
 - Does not decide which sections matter — that's the consumer's `select` callback
