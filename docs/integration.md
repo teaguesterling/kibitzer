@@ -16,7 +16,8 @@ Kibitzer coordinates three existing tools, integrates with the superpowers plugi
 | JetsamInterceptor | jetsam on PATH |
 | FledglingInterceptor | fledgling on PATH |
 | Coach (semantic underuse) | fledgling available to the agent |
-| Doc context pipeline | pluckit Python package |
+| Doc context pipeline (ILIKE) | pluckit Python package |
+| Doc context pipeline (BM25) | pluckit + fledgling + DuckDB markdown extension |
 | Doc context (Context7) | nothing — uses stdlib urllib (network access) |
 | Policy from umwelt | umwelt Python package + compiled `.kibitzer/policy.db` |
 
@@ -83,7 +84,7 @@ All queries have a 5-second timeout. If fledgling is unavailable or a query fail
 
 ## Pluckit
 
-[Pluckit](https://github.com/teague/pluckit) provides structured access to markdown documentation — glob-based doc discovery, ILIKE search, and section extraction.
+[Pluckit](https://github.com/teague/pluckit) provides structured access to markdown documentation — glob-based doc discovery, BM25 search via named FTS collections, and section extraction.
 
 **What kibitzer uses from pluckit:**
 - `Plucker.connection` — access to the underlying DuckDB connection for `read_markdown_sections`
