@@ -136,6 +136,24 @@ def _write_mcp_json(project_dir: Path) -> None:
     click.echo(f"Created {mcp_path}")
 
 
+@cli.group()
+def mcp():
+    """MCP server commands."""
+    pass
+
+
+@mcp.command(name="serve")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse"]),
+    default="stdio",
+    help="MCP transport type",
+)
+def mcp_serve(transport: str):
+    """Run the kibitzer MCP server."""
+    _run_server(transport)
+
+
 @cli.command()
 @click.option(
     "--transport",
@@ -145,6 +163,10 @@ def _write_mcp_json(project_dir: Path) -> None:
 )
 def serve(transport: str):
     """Run the kibitzer MCP server."""
+    _run_server(transport)
+
+
+def _run_server(transport: str):
     from kibitzer.mcp.server import create_mcp_server
     mcp = create_mcp_server()
     mcp.run(transport=transport)
