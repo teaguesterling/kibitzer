@@ -399,7 +399,7 @@ class TestDocsFromConfig:
         # Write a project config with [docs] section
         cfg_dir = tmp_path / ".kibitzer"
         cfg_dir.mkdir(exist_ok=True)
-        import tomli_w  # noqa: F811 — only needed for writing TOML
+        tomli_w = pytest.importorskip("tomli_w")  # only needed for writing TOML
         pytest.importorskip("tomli_w", reason="tomli_w not installed")
         with open(cfg_dir / "config.toml", "wb") as f:
             tomli_w.dump({
@@ -532,7 +532,6 @@ class TestMcpGetDocContext:
         pytest.importorskip("pluckit", reason="pluckit not installed")
         proj = _project(tmp_path)
         doc_refs = _write_tool_docs(tmp_path)
-        from kibitzer.mcp.server import get_doc_context
         # Direct Python caller path
         with KibitzerSession(project_dir=proj) as session:
             session.register_docs(doc_refs, docs_root=str(tmp_path))
@@ -641,6 +640,10 @@ class TestBm25DocRetrieval:
             assert any("read_file" in f for f in files)
 
 
+@pytest.mark.skipif(
+    not (_has_pluckit() and _has_fledgling()),
+    reason="anchor/section retrieval needs the pluckit+fledgling doc backend",
+)
 class TestAnchorDocRetrieval:
     """Tests for section anchor scoping in doc refs."""
 
