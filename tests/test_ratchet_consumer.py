@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-import duckdb
 import pytest
 
-from kibitzer.ratchet import RatchetConsumer, PromotedRatchet
+duckdb = pytest.importorskip("duckdb")
+
+from kibitzer.ratchet import RatchetConsumer
 
 # agent-riggs' real schema (the read contract this consumer depends on).
 _DDL = """
