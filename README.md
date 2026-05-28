@@ -39,6 +39,7 @@ implement   src/, lib/          normal dev — tests protected
 test        tests/, test/       writing tests — source protected
 docs        docs/, README.md    documentation only
 explore     nothing             read-only investigation
+review      nothing             read-only code review
 ```
 
 When a write is denied, the agent sees why and how to fix it:

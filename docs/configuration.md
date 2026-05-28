@@ -30,6 +30,10 @@ strategy = "Explain the why, not the what."
 writable = []
 strategy = "Map the territory before making changes."
 
+[modes.review]
+writable = []
+strategy = "Read everything, then verify with tests."
+
 [controller]
 default_mode = "implement"
 max_consecutive_failures = 3
@@ -70,16 +74,17 @@ Each mode defines what paths the agent can write to and an optional strategy ins
 
 **Writable paths** are prefix-matched: `"src/"` matches `src/foo/bar.py`. Exact filenames also work: `"README.md"` matches `README.md` but not `src/README.md`.
 
-**Custom modes:** You can define new modes beyond the 5 defaults:
+**Custom modes:** You can define new modes beyond the six built in (free, implement,
+test, docs, explore, review):
 
 ```toml
 [modes.deploy]
 writable = ["infra/", "deploy/"]
 strategy = "Verify before applying."
 
-[modes.review]
-writable = []
-strategy = "Read everything before forming an opinion."
+[modes.migration]
+writable = ["migrations/", "alembic/"]
+strategy = "One reversible step at a time."
 ```
 
 ### `[controller]`

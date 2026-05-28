@@ -4,7 +4,7 @@ Kibitzer enforces what the agent can write based on the current mode. The path g
 
 Bash writes are not guarded — that's [blq's sandbox enforcement](integration.md#blq) domain.
 
-## The 5 modes
+## The 6 modes
 
 ### `free`
 - **Writable:** everything (`["*"]`)
@@ -29,7 +29,12 @@ Bash writes are not guarded — that's [blq's sandbox enforcement](integration.m
 ### `explore`
 - **Writable:** nothing (read-only)
 - **Strategy:** "Map the territory before making changes."
-- **When to use:** Diagnosing a problem or reviewing code. All edits are blocked — the agent can only read, search, and run commands. Forces investigation before action. The mode controller auto-switches here after 3+ consecutive failures.
+- **When to use:** Diagnosing a problem before changing it. All edits are blocked — the agent can only read, search, and run commands. Forces investigation before action. The mode controller auto-switches here after 3+ consecutive failures.
+
+### `review`
+- **Writable:** nothing (read-only)
+- **Strategy:** "Read everything, then verify with tests."
+- **When to use:** Reviewing existing code (a PR, a change, a suspect module). Like `explore` it blocks all edits, but the strategy points at *judging* code rather than *diagnosing a problem* — read broadly, then confirm with the test suite. Not part of the auto-transition graph; switch into it deliberately via `ChangeToolMode`.
 
 ## Path matching
 
@@ -83,16 +88,16 @@ writable = ["src/", "tests/"]
 # src/ writable because Rust tests live in source files
 ```
 
-You can also define entirely new modes:
+You can also define entirely new modes (beyond the six built in):
 
 ```toml
 [modes.deploy]
 writable = ["infra/", "deploy/", "k8s/"]
 strategy = "Verify before applying."
 
-[modes.review]
-writable = []
-strategy = "Read everything before forming an opinion."
+[modes.migration]
+writable = ["migrations/", "alembic/"]
+strategy = "One reversible step at a time."
 ```
 
 ## Coach behavior per mode
