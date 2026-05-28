@@ -30,6 +30,9 @@ classifiers = [
 dependencies = [
     "click>=8.1",
     "mcp[cli]>=1.0",
+    # The shared failure-mode taxonomy (kibitzer.failure_modes imports it) — the
+    # dependency-free lackpy language leaf, not the full lackpy runtime.
+    "lackpy-lang>=0.12",
 ]
 
 [project.urls]
