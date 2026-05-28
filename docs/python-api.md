@@ -627,6 +627,54 @@ with KibitzerSession(project_dir=".") as session:
         print(f"{entry['plugin']}: {entry['bash_command']} -> {entry['suggested_tool']}")
 ```
 
+### agent-riggs — surfacing promoted ratchets
+
+`RatchetConsumer` (`kibitzer.ratchet`) is the read-only consumer half of the cross-session
+learning loop. agent-riggs (the *producer*) watches failures, forms candidate ratchets, and
+**promotes** the good ones into a shared store (`.riggs/store.duckdb`). The consumer reads
+the *promoted* rows and matches them to the current failure fingerprint, so kibitzer can
+surface a known repeat-failure pattern as coaching — closing observe → learn → observe.
+
+```python
+from kibitzer.ratchet import RatchetConsumer
+
+# Load from an explicit path, or from the RIGGS_RATCHET_DB env var (the wiring point).
+consumer = RatchetConsumer.from_env()          # -> RatchetConsumer | None
+if consumer:                                    # graceful: None when no usable store
+    hint = consumer.coaching_for_failure(tool="Bash", mode="implement", category="stdlib_leak")
+    # -> "kibitzer: known repeat-failure pattern 'stdlib_leak-Bash-implement', 4× across 3 sessions. Promoted: ..."  | None
+```
+
+Construction is **graceful by contract**, like the policy consumer:
+
+- `RatchetConsumer.from_db(path)` / `from_env(var="RIGGS_RATCHET_DB")` → a consumer, or
+  `None` when there is no usable store (missing file, no `duckdb`, open error).
+- A store that opens but holds **no promoted ratchets** (including before the
+  `ratchet_decisions` table exists — the realistic OFF state) yields an **empty** consumer
+  whose `suggest()` is always `None`. So a hook can call `from_env()` unconditionally and
+  stay inert until a store is explicitly present.
+
+The store **schema is the contract** (read-only SQL over `ratchet_decisions`, never written).
+The match key mirrors agent-riggs' own derivation and is pinned by a producer-driven
+conformance test:
+
+```python
+RatchetConsumer.constraint_key(category, tool, mode)  # f"{category}-{tool or 'unknown'}-{mode or 'any'}"
+
+consumer.suggest(category=..., tool=..., mode=...)     # best PromotedRatchet | None
+consumer.match(category=..., tool=..., mode=...)        # all matches, best (highest trust) first
+consumer.match_key("stdlib_leak-Bash-implement")        # for an already-computed key
+```
+
+A `PromotedRatchet` carries `candidate_key`, `candidate_type`, `evidence` (dict),
+`reason`, plus `.trust` (ordering score from `avg_trust`/`success_rate`), `.severity`, and
+`.coaching_message()` (the one-line surface built from the persisted fields).
+
+> **Status / safety gate.** `coaching_for_failure` is deliberately kept out of the live
+> PostToolUse hot-path until the precision bar (false-promotion ≤ 10%) is validated — a
+> *wrong* suggestion is worse than none. Wire it at a deliberate integration point
+> (`from_env` against a frozen store), not on every failure.
+
 ## Event log (SQLite)
 
 `KibitzerSession` appends events to `.kibitzer/store.sqlite` on `after_call()` and `save()`. The schema is append-only:
