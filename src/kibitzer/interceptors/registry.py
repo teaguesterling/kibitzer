@@ -4,13 +4,14 @@ from __future__ import annotations
 import shutil
 from kibitzer.interceptors.base import BaseInterceptor
 from kibitzer.interceptors.blq import BlqInterceptor
-from kibitzer.interceptors.fledgling import FledglingInterceptor
 from kibitzer.interceptors.jetsam import JetsamInterceptor
+from kibitzer.interceptors.squackit import SquackitInterceptor
 
 _PLUGINS: list[tuple[str, type[BaseInterceptor]]] = [
     ("blq", BlqInterceptor),
     ("jetsam", JetsamInterceptor),
-    ("fledgling", FledglingInterceptor),
+    # squackit is the first-line code-search wrapper; gated on `which squackit`.
+    ("squackit", SquackitInterceptor),
 ]
 
 

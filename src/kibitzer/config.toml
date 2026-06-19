@@ -52,6 +52,6 @@ enabled = true
 mode = "observe"
 enabled = true
 
-[plugins.fledgling]
+[plugins.squackit]
 mode = "suggest"
 enabled = true

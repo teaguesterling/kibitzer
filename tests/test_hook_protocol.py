@@ -394,19 +394,19 @@ class TestPreToolUseBashInterception:
             hook, project_dir=project, plugin_modes={"blq": "suggest"},
         )
         assert result is not None
-        assert "blq run test" in result["hookSpecificOutput"]["additionalContext"]
+        assert "blq run" in result["hookSpecificOutput"]["additionalContext"]
 
     @patch("kibitzer.session.build_registry")
-    def test_grep_for_def_suggest_fledgling(self, mock_registry, project):
-        from kibitzer.interceptors.fledgling import FledglingInterceptor
-        mock_registry.return_value = [FledglingInterceptor()]
+    def test_grep_for_def_suggest_squackit(self, mock_registry, project):
+        from kibitzer.interceptors.squackit import SquackitInterceptor
+        mock_registry.return_value = [SquackitInterceptor()]
 
         hook = _pre_hook("Bash", {"command": "grep -rn 'def handle_request' src/"})
         result = handle_pre_tool_use(
-            hook, project_dir=project, plugin_modes={"fledgling": "suggest"},
+            hook, project_dir=project, plugin_modes={"squackit": "suggest"},
         )
         assert result is not None
-        assert "FindDefinitions" in result["hookSpecificOutput"]["additionalContext"]
+        assert "find_names" in result["hookSpecificOutput"]["additionalContext"]
 
     @patch("kibitzer.session.build_registry")
     def test_non_matching_bash_passes(self, mock_registry, project):

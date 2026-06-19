@@ -1,7 +1,7 @@
 from unittest.mock import patch
 from kibitzer.interceptors.blq import BlqInterceptor
 from kibitzer.interceptors.jetsam import JetsamInterceptor
-from kibitzer.interceptors.fledgling import FledglingInterceptor
+from kibitzer.interceptors.squackit import SquackitInterceptor
 from kibitzer.interceptors.registry import build_registry
 
 
@@ -21,6 +21,12 @@ class TestBlqInterceptor:
     def test_matches_cargo_test(self):
         result = self.plugin.check("cargo test")
         assert result is not None
+
+    def test_matches_cargo_build(self):
+        # broadened: build runners (not just test runners) now nudge toward blq
+        result = self.plugin.check("cargo build 2>&1 | grep error")
+        assert result is not None
+        assert "blq" in result.tool
 
     def test_no_match_on_random_command(self):
         result = self.plugin.check("ls -la")
@@ -62,26 +68,38 @@ class TestJetsamInterceptor:
         assert result is None
 
 
-class TestFledglingInterceptor:
+class TestSquackitInterceptor:
     def setup_method(self):
-        self.plugin = FledglingInterceptor()
+        self.plugin = SquackitInterceptor()
 
     def test_matches_grep_for_def(self):
         result = self.plugin.check("grep -rn 'def handle_request' src/")
         assert result is not None
-        assert "FindDefinitions" in result.tool
+        assert "find_names" in result.tool
 
     def test_matches_grep_for_class(self):
         result = self.plugin.check("grep -r 'class MyService' .")
         assert result is not None
 
+    def test_matches_content_grep(self):
+        # Broadened: a recursive string-pattern grep now nudges toward squackit
+        # search (was the dominant un-nudged bypass).
+        result = self.plugin.check("grep -r 'error_message' src/")
+        assert result is not None
+        assert "search" in result.tool
+
+    def test_matches_ripgrep(self):
+        result = self.plugin.check("rg 'TODO' src/")
+        assert result is not None
+
     def test_matches_find_name(self):
         result = self.plugin.check("find . -name '*.py' -type f")
         assert result is not None
-        assert "CodeStructure" in result.tool
+        assert "project_overview" in result.tool
 
-    def test_no_match_on_content_grep(self):
-        result = self.plugin.check("grep -r 'error_message' src/")
+    def test_no_match_on_pipe_filter_grep(self):
+        # grep as a pipe-filter (not a search) should not nudge
+        result = self.plugin.check("cat app.log | grep -r ERROR")
         assert result is None
 
     def test_no_match_on_random_command(self):
@@ -97,7 +115,7 @@ class TestRegistry:
         names = [p.name for p in plugins]
         assert "blq" in names
         assert "jetsam" in names
-        assert "fledgling" in names
+        assert "squackit" in names
 
     @patch("kibitzer.interceptors.registry.shutil.which")
     def test_no_tools_available(self, mock_which):
