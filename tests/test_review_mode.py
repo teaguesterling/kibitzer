@@ -57,7 +57,9 @@ class TestReviewPathGuard:
             {"tool_name": "Bash", "tool_input": {"command": "pytest tests/ -v"}},
             project_dir=proj,
         )
-        assert result is None
+        # An advisory interceptor suggestion (additionalContext, e.g. blq) is
+        # fine — review mode just must not *deny* a command.
+        assert result is None or result["hookSpecificOutput"].get("permissionDecision") != "deny"
 
 
 # ===========================================================================

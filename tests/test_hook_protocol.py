@@ -23,7 +23,9 @@ def project(tmp_path):
     """Kibitzer initialized in implement mode."""
     state_dir = tmp_path / ".kibitzer"
     state_dir.mkdir()
-    save_state(fresh_state(), state_dir)
+    state = fresh_state()
+    state["mode"] = "implement"
+    save_state(state, state_dir)
     return tmp_path
 
 

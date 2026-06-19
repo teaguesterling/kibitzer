@@ -23,7 +23,7 @@ writable = []
 strategy = "Read everything, then verify with tests."
 
 [controller]
-default_mode = "implement"
+default_mode = "free"
 max_consecutive_failures = 3
 max_turns_in_explore = 20
 
@@ -45,7 +45,7 @@ context7 = true
 # Bash = "tools/bash.md"
 
 [plugins.blq]
-mode = "observe"
+mode = "suggest"
 enabled = true
 
 [plugins.jetsam]
@@ -53,5 +53,5 @@ mode = "observe"
 enabled = true
 
 [plugins.fledgling]
-mode = "observe"
+mode = "suggest"
 enabled = true

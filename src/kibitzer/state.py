@@ -9,7 +9,7 @@ from typing import Any
 STATE_FILENAME = "state.json"
 
 
-def fresh_state(default_mode: str = "implement") -> dict[str, Any]:
+def fresh_state(default_mode: str = "free") -> dict[str, Any]:
     """Return a blank state dict with all expected fields."""
     return {
         "mode": default_mode,

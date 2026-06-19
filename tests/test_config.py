@@ -59,7 +59,7 @@ def test_coach_config_with_model_overrides():
 
 def test_plugin_config():
     config = load_config(project_dir=Path("/nonexistent"))
-    assert config["plugins"]["blq"]["mode"] == "observe"
+    assert config["plugins"]["blq"]["mode"] == "suggest"
     assert config["plugins"]["blq"]["enabled"] is True
 
 

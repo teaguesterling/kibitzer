@@ -64,7 +64,10 @@ docs = [
     "mkdocs-material>=9.0",
 ]
 fledgling = [
-    "fledgling>=0.3.0",
+    # The `fledgling` import module (fledgling.connect()) is shipped by the
+    # `fledgling-mcp` distribution; the bare `fledgling` name on PyPI is an
+    # unrelated 0.0.1 stub. >=0.12 has the connect() API the coach uses.
+    "fledgling-mcp>=0.12",
 ]
 pluckit = [
     "pluckit>=0.3.0",

@@ -167,7 +167,7 @@ class KibitzerSession:
 
     @property
     def mode(self) -> str:
-        return self._state.get("mode", "implement")
+        return self._state.get("mode", "free")
 
     @property
     def state(self) -> dict:

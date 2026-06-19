@@ -8,7 +8,9 @@ from kibitzer.state import fresh_state, save_state
 def _project(tmp_path):
     state_dir = tmp_path / ".kibitzer"
     state_dir.mkdir()
-    save_state(fresh_state(), state_dir)
+    state = fresh_state()
+    state["mode"] = "implement"
+    save_state(state, state_dir)
     return tmp_path
 
 

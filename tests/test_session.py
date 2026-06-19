@@ -52,7 +52,7 @@ class TestSessionLifecycle:
         save_state(fresh_state(), state_dir)
 
         with KibitzerSession(project_dir=tmp_path) as session:
-            assert session.mode == "implement"
+            assert session.mode == "free"
 
     def test_manual_load_save(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
@@ -61,12 +61,12 @@ class TestSessionLifecycle:
 
         session = KibitzerSession(project_dir=tmp_path)
         session.load()
-        assert session.mode == "implement"
+        assert session.mode == "free"
         session.save()
 
     def test_no_state_dir_uses_defaults(self, tmp_path):
         with KibitzerSession(project_dir=tmp_path) as session:
-            assert session.mode == "implement"
+            assert session.mode == "free"
 
     def test_properties(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
@@ -74,10 +74,10 @@ class TestSessionLifecycle:
         save_state(fresh_state(), state_dir)
 
         with KibitzerSession(project_dir=tmp_path) as session:
-            assert session.mode == "implement"
+            assert session.mode == "free"
             assert isinstance(session.config, dict)
             assert isinstance(session.state, dict)
-            assert session.writable == ["src/", "lib/"]
+            assert session.writable == ["*"]
 
 
 class TestBeforeCall:
@@ -93,7 +93,9 @@ class TestBeforeCall:
     def test_deny_test_edit_in_implement(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
-        save_state(fresh_state(), state_dir)
+        state = fresh_state()
+        state["mode"] = "implement"
+        save_state(state, state_dir)
 
         with KibitzerSession(project_dir=tmp_path) as session:
             result = session.before_call("Edit", {"file_path": "tests/foo.py"})
@@ -128,6 +130,7 @@ class TestAfterCall:
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
         state = fresh_state()
+        state["mode"] = "implement"
         state["consecutive_failures"] = 2
         save_state(state, state_dir)
 
@@ -165,7 +168,9 @@ class TestValidateCalls:
     def test_returns_violations(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
-        save_state(fresh_state(), state_dir)
+        state = fresh_state()
+        state["mode"] = "implement"
+        save_state(state, state_dir)
 
         with KibitzerSession(project_dir=tmp_path) as session:
             violations = session.validate_calls([
@@ -198,7 +203,7 @@ class TestChangeMode:
         with KibitzerSession(project_dir=tmp_path) as session:
             result = session.change_mode("test", reason="writing tests")
             assert result["new_mode"] == "test"
-            assert result["previous_mode"] == "implement"
+            assert result["previous_mode"] == "free"
             assert session.mode == "test"
 
     def test_invalid_mode(self, tmp_path):

@@ -3,7 +3,7 @@ from kibitzer.state import load_state, save_state, fresh_state
 
 def test_fresh_state_has_defaults():
     state = fresh_state()
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
     assert state["failure_count"] == 0
     assert state["success_count"] == 0
     assert state["consecutive_failures"] == 0
@@ -31,7 +31,7 @@ def test_save_and_load_roundtrip(state_dir):
 
 def test_load_nonexistent_returns_fresh(tmp_path):
     state = load_state(tmp_path / "nonexistent")
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
     assert state["total_calls"] == 0
 
 
@@ -58,32 +58,32 @@ def test_state_preserves_extra_fields(state_dir):
 def test_load_empty_file_returns_fresh(state_dir):
     (state_dir / "state.json").write_text("")
     state = load_state(state_dir)
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
     assert state["total_calls"] == 0
 
 
 def test_load_invalid_json_returns_fresh(state_dir):
     (state_dir / "state.json").write_text("{not valid json!!")
     state = load_state(state_dir)
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
 
 
 def test_load_json_array_returns_fresh(state_dir):
     (state_dir / "state.json").write_text("[1, 2, 3]")
     state = load_state(state_dir)
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
 
 
 def test_load_json_string_returns_fresh(state_dir):
     (state_dir / "state.json").write_text('"just a string"')
     state = load_state(state_dir)
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
 
 
 def test_load_json_null_returns_fresh(state_dir):
     (state_dir / "state.json").write_text("null")
     state = load_state(state_dir)
-    assert state["mode"] == "implement"
+    assert state["mode"] == "free"
 
 
 def test_load_partial_state_fills_defaults(state_dir):
