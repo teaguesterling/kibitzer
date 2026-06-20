@@ -70,11 +70,14 @@ fledgling = [
     "fledgling-mcp>=0.12",
 ]
 pluckit = [
-    "pluckit>=0.3.0",
+    # The `pluckit` import module (with Plucker) is shipped by `ast-pluckit`;
+    # the bare `pluckit` name on PyPI is an unrelated package.
+    "ast-pluckit>=0.13",
 ]
-umwelt = [
-    "umwelt>=0.6.0",
-]
+# (no [umwelt] extra: kibitzer reads compiled umwelt *policy DBs* via its own
+# kibitzer.umwelt subpackage; it never imports the external `umwelt` package.
+# The bare `umwelt` name on PyPI is an unrelated 2019 package that conflicts
+# with mcp[cli], so pinning it was both wrong and harmful.)
 
 [tool.ruff.lint.per-file-ignores]
 # tests legitimately carry availability-probe imports (F401) and setup-only

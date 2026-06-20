@@ -5,6 +5,7 @@ dist/
 build/
 .kibitzer/state.json
 .kibitzer/intercept.log
+.kibitzer/store.sqlite
 .pytest_cache/
 .ruff_cache/
 .venv/
