@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,15 @@ from kibitzer.store import KibitzerStore
 _WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 _INTERCEPT_TOOLS = {"Bash"}
 _LOG_FILE = ".kibitzer/intercept.log"
+
+# Heredoc bodies (e.g. a `git commit -F - <<'EOF' ... EOF` message) can mention
+# 'grep' / 'cargo build' etc.; strip them so interceptors match the real
+# command, not quoted prose.
+_HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?^\s*\1\b", re.DOTALL | re.MULTILINE)
+
+
+def _strip_heredocs(command: str) -> str:
+    return _HEREDOC_RE.sub("<<HEREDOC", command)
 _UNSET = object()  # sentinel for "use session default"
 
 
@@ -1112,15 +1122,19 @@ class KibitzerSession:
         if tool_name in _INTERCEPT_TOOLS:
             command = tool_input.get("command", "")
             if command:
+                # Match with heredoc bodies stripped, so quoted prose (a commit
+                # message mentioning 'grep' / 'cargo build') doesn't trip a nudge.
+                scan = _strip_heredocs(command)
                 plugin_modes = {}
                 for name, pcfg in self._config.get("plugins", {}).items():
                     if pcfg.get("enabled", True):
                         plugin_modes[name] = pcfg.get("mode", "observe")
 
+                already = self._state.setdefault("suggestions_given", [])
                 for plugin in self.interceptors:
                     if plugin.name not in plugin_modes:
                         continue
-                    suggestion = plugin.check(command)
+                    suggestion = plugin.check(scan)
                     if suggestion is None:
                         continue
 
@@ -1133,6 +1147,13 @@ class KibitzerSession:
                         return None
 
                     if pmode == InterceptMode.SUGGEST:
+                        # Anti-fatigue: nudge once per plugin per session. After
+                        # the first reminder, trust the agent heard it — log the
+                        # repeat but don't re-surface it.
+                        if plugin.name in already:
+                            self._log_intercept(command, suggestion)
+                            return None
+                        already.append(plugin.name)
                         return CallResult(
                             context=(
                                 f"[kibitzer] {suggestion.plugin} suggests: "

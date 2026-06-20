@@ -421,6 +421,35 @@ class TestPreToolUseBashInterception:
         assert result is None
 
     @patch("kibitzer.session.build_registry")
+    def test_nudge_dedupes_per_session(self, mock_registry, project):
+        """Anti-fatigue: a plugin nudges at most once per session; the repeat
+        is logged but not re-surfaced."""
+        from kibitzer.interceptors.squackit import SquackitInterceptor
+        mock_registry.return_value = [SquackitInterceptor()]
+        r1 = handle_pre_tool_use(
+            _pre_hook("Bash", {"command": "grep -rn foo src/"}),
+            project_dir=project, plugin_modes={"squackit": "suggest"},
+        )
+        assert r1 is not None
+        r2 = handle_pre_tool_use(
+            _pre_hook("Bash", {"command": "grep -rn bar lib/"}),
+            project_dir=project, plugin_modes={"squackit": "suggest"},
+        )
+        assert r2 is None
+
+    @patch("kibitzer.session.build_registry")
+    def test_heredoc_body_does_not_nudge(self, mock_registry, project):
+        """A build/grep mentioned inside a heredoc (e.g. a commit message) is
+        not the command, so it must not trip an interceptor."""
+        from kibitzer.interceptors.blq import BlqInterceptor
+        mock_registry.return_value = [BlqInterceptor()]
+        result = handle_pre_tool_use(
+            _pre_hook("Bash", {"command": "git commit -F - <<'EOF'\nfix: cargo build was broken\nEOF"}),
+            project_dir=project, plugin_modes={"blq": "suggest"},
+        )
+        assert result is None
+
+    @patch("kibitzer.session.build_registry")
     def test_empty_command_passes(self, mock_registry, project):
         mock_registry.return_value = []
         hook = _pre_hook("Bash", {"command": ""})
