@@ -27,6 +27,16 @@ default_mode = "free"
 max_consecutive_failures = 3
 max_turns_in_explore = 20
 
+[experiment]
+# A/B test: does an advisory nudge change the agent's next choice? Each eligible
+# bypass forms a trial — with probability `nudge_probability` it's NUDGED, else
+# it's a silent CONTROL. After-the-fact heed (did the agent use the suggested
+# tool within `heed_window` calls) is logged to ~/.kibitzer/nudge_trials.jsonl;
+# scripts/nudge_lift.py computes lift = heed(nudge) - heed(control). Set
+# nudge_probability = 1.0 to always nudge (no experiment).
+nudge_probability = 0.5
+heed_window = 10
+
 [coach]
 frequency = 5
 enabled = true

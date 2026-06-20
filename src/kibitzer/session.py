@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -36,6 +37,22 @@ _HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?^\s*\1\b", re.DOTALL | re.
 
 def _strip_heredocs(command: str) -> str:
     return _HEREDOC_RE.sub("<<HEREDOC", command)
+
+
+# Central, cross-project log of nudge A/B trials (analysed by nudge_lift.py).
+_TRIAL_LOG = Path.home() / ".kibitzer" / "nudge_trials.jsonl"
+
+_MCP_TOOL_RE = re.compile(r"^mcp__(?:plugin_)?(\w+?)(?:_\w+)?__\w+$")
+_RETRITIS_PLUGINS = {"squackit", "blq", "jetsam", "fledgling", "lackpy"}
+
+
+def _plugin_of_tool(tool_name: str) -> str | None:
+    """The retritis plugin an MCP tool belongs to (for heed/engaged tracking)."""
+    m = _MCP_TOOL_RE.match(tool_name or "")
+    if not m:
+        return None
+    plug = m.group(1).split("_")[0]
+    return plug if plug in _RETRITIS_PLUGINS else None
 _UNSET = object()  # sentinel for "use session default"
 
 
@@ -1147,13 +1164,21 @@ class KibitzerSession:
                         return None
 
                     if pmode == InterceptMode.SUGGEST:
-                        # Anti-fatigue: nudge once per plugin per session. After
-                        # the first reminder, trust the agent heard it — log the
-                        # repeat but don't re-surface it.
-                        if plugin.name in already:
+                        # Anti-fatigue: skip if this plugin already nudged this
+                        # session, or if the agent already uses it.
+                        engaged = self._state.get("engaged_plugins", [])
+                        if plugin.name in already or plugin.name in engaged:
                             self._log_intercept(command, suggestion)
                             return None
                         already.append(plugin.name)
+                        # A/B trial: randomly NUDGE vs CONTROL (heed resolved in
+                        # after_call). CONTROL is silent but still a logged trial.
+                        arm = ("nudge" if random.random() < self._nudge_probability()
+                               else "control")
+                        self._open_trial(plugin.name, suggestion.tool, command, arm)
+                        if arm == "control":
+                            self._log_intercept(command, suggestion)
+                            return None
                         return CallResult(
                             context=(
                                 f"[kibitzer] {suggestion.plugin} suggests: "
@@ -1186,6 +1211,7 @@ class KibitzerSession:
             success = self._detect_success(tool_name, tool_result)
 
         update_counters(self._state, tool_name, success, tool_input=tool_input)
+        self._resolve_trials(tool_name)
 
         messages = []
 
@@ -1295,6 +1321,59 @@ class KibitzerSession:
         except (ValueError, TypeError):
             pass
         return file_path
+
+    # --- A/B nudge experiment ---
+
+    def _nudge_probability(self) -> float:
+        return float(self._config.get("experiment", {}).get("nudge_probability", 1.0))
+
+    def _heed_window(self) -> int:
+        return int(self._config.get("experiment", {}).get("heed_window", 10))
+
+    def _append_trial_log(self, record: dict) -> None:
+        try:
+            _TRIAL_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(_TRIAL_LOG, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except OSError:
+            pass
+
+    def _open_trial(self, plugin: str, tool: str, command: str, arm: str) -> None:
+        """Record an A/B trial in state; heed is resolved later in after_call."""
+        now = self._state.get("total_calls", 0)
+        self._state.setdefault("nudge_trials", []).append({
+            "plugin": plugin, "arm": arm,
+            "start_turn": now, "deadline": now + self._heed_window(),
+        })
+
+    def _close_trial(self, trial: dict, heed: bool, turns: int) -> None:
+        self._append_trial_log({
+            "plugin": trial["plugin"], "arm": trial["arm"], "heed": heed,
+            "turns_to_heed": turns if heed else None,
+            "session": self._state.get("session_id"),
+        })
+
+    def _resolve_trials(self, tool_name: str) -> None:
+        """In after_call: note engaged plugins + resolve open nudge trials by
+        checking whether the suggested tool was used within the heed window."""
+        plug = _plugin_of_tool(tool_name)
+        if plug:
+            engaged = self._state.setdefault("engaged_plugins", [])
+            if plug not in engaged:
+                engaged.append(plug)
+        pending = self._state.get("nudge_trials")
+        if not pending:
+            return
+        now = self._state.get("total_calls", 0)
+        still = []
+        for t in pending:
+            if plug == t["plugin"]:
+                self._close_trial(t, heed=True, turns=now - t["start_turn"])
+            elif now >= t["deadline"]:
+                self._close_trial(t, heed=False, turns=now - t["start_turn"])
+            else:
+                still.append(t)
+        self._state["nudge_trials"] = still
 
     def _log_intercept(self, command: str, suggestion: Any) -> None:
         log_path = self._project_dir / _LOG_FILE

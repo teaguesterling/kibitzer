@@ -28,3 +28,14 @@ def _no_live_context7(monkeypatch):
         lambda self, query: [],
         raising=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_nudge(monkeypatch, tmp_path):
+    """Make the nudge A/B deterministic in tests: always take the NUDGE arm
+    (random -> 0.0, below any probability) and never write to the real
+    ~/.kibitzer/nudge_trials.jsonl. Tests of the CONTROL arm re-patch random
+    within their own scope."""
+    monkeypatch.setattr("kibitzer.session.random.random", lambda: 0.0, raising=False)
+    monkeypatch.setattr("kibitzer.session._TRIAL_LOG",
+                        tmp_path / "nudge_trials.jsonl", raising=False)
