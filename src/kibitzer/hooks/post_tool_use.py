@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from kibitzer.session import KibitzerSession
+
+
+def _session_id(hook_input: dict) -> str | None:
+    """Claude Code passes session_id on stdin; fall back to the transcript
+    filename stem (the session UUID) if a payload ever omits it."""
+    sid = hook_input.get("session_id")
+    if sid:
+        return sid
+    tp = hook_input.get("transcript_path")
+    return Path(tp).stem if tp else None
 
 
 def _detect_success(hook_input):
@@ -25,7 +36,7 @@ def main() -> None:
     except (json.JSONDecodeError, OSError):
         return
 
-    with KibitzerSession(safe_mode=True) as session:
+    with KibitzerSession(safe_mode=True, session_id=_session_id(hook_input)) as session:
         result = session.after_call(
             tool_name=hook_input.get("tool_name", ""),
             tool_input=hook_input.get("tool_input", {}),

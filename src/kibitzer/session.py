@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,10 +104,12 @@ class KibitzerSession:
         project_dir: str | Path | None = None,
         safe_mode: bool = False,
         namespace: str | None = None,
+        session_id: str | None = None,
     ):
         self._project_dir = Path(project_dir) if project_dir else Path.cwd()
         self._safe_mode = safe_mode
         self._namespace: str | None = namespace
+        self._session_id = session_id
         self._config: dict = {}
         self._state: dict = {}
         self._store: KibitzerStore | None = None
@@ -137,6 +140,12 @@ class KibitzerSession:
         self._config = load_config(self._project_dir)
         state_dir = self._project_dir / ".kibitzer"
         self._state = load_state(state_dir)
+        # Stamp the current Claude session id (from the hook payload) over the
+        # per-project state every load, so trials/events are attributable and so
+        # heed can be guarded to the session that opened the trial. State is
+        # shared per-project; we never rely on the persisted value being ours.
+        if self._session_id:
+            self._state["session_id"] = self._session_id
         store_path = state_dir / "store.sqlite"
         self._store = KibitzerStore(store_path)
         try:
@@ -1344,13 +1353,15 @@ class KibitzerSession:
         self._state.setdefault("nudge_trials", []).append({
             "plugin": plugin, "arm": arm,
             "start_turn": now, "deadline": now + self._heed_window(),
+            "session": self._state.get("session_id"),  # who opened it
         })
 
     def _close_trial(self, trial: dict, heed: bool, turns: int) -> None:
         self._append_trial_log({
             "plugin": trial["plugin"], "arm": trial["arm"], "heed": heed,
             "turns_to_heed": turns if heed else None,
-            "session": self._state.get("session_id"),
+            "session": trial.get("session"),  # attribute to the opening session
+            "ts": time.time(),
         })
 
     def _resolve_trials(self, tool_name: str) -> None:
@@ -1365,9 +1376,15 @@ class KibitzerSession:
         if not pending:
             return
         now = self._state.get("total_calls", 0)
+        cur = self._state.get("session_id")
         still = []
         for t in pending:
-            if plug == t["plugin"]:
+            # Only the session that opened the trial may resolve it as "heed":
+            # state is shared per-project, so another concurrent session using
+            # the tool must not be credited to this nudge. (Legacy trials with
+            # no recorded session fall back to the old any-session behavior.)
+            same_session = t.get("session") is None or t.get("session") == cur
+            if plug == t["plugin"] and same_session:
                 self._close_trial(t, heed=True, turns=now - t["start_turn"])
             elif now >= t["deadline"]:
                 self._close_trial(t, heed=False, turns=now - t["start_turn"])

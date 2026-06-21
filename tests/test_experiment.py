@@ -98,3 +98,44 @@ class TestHeedResolution:
         from kibitzer.session import _TRIAL_LOG
         records = [json.loads(x) for x in _TRIAL_LOG.read_text().splitlines() if x.strip()]
         assert records and records[-1]["heed"] is False
+
+
+@patch("kibitzer.session.build_registry", return_value=[SquackitInterceptor()])
+class TestSessionAttribution:
+    def test_record_carries_session_and_ts(self, _reg, tmp_path):
+        # session_id flows from the constructor (the hook payload) into state,
+        # gets stamped on the trial, and survives to the resolved record.
+        proj = tmp_path
+        d = proj / ".kibitzer"; d.mkdir()
+        s0 = fresh_state(); s0["mode"] = "free"; save_state(s0, d)
+        with KibitzerSession(project_dir=proj, session_id="sess-A") as s:
+            _cfg(s)
+            s.before_call("Bash", {"command": "grep -rn foo src/"})
+        with KibitzerSession(project_dir=proj, session_id="sess-A") as s:
+            _cfg(s)
+            s.after_call("mcp__plugin_squackit_squackit__search", {}, success=True)
+        from kibitzer.session import _TRIAL_LOG
+        rec = [json.loads(x) for x in _TRIAL_LOG.read_text().splitlines() if x.strip()][-1]
+        assert rec["session"] == "sess-A"
+        assert rec["heed"] is True
+        assert isinstance(rec.get("ts"), (int, float))
+
+    def test_other_session_does_not_credit_heed(self, _reg, tmp_path):
+        # session A opens a trial; session B (same repo, shared state) uses the
+        # tool. B must NOT be credited as heed for A's nudge.
+        proj = tmp_path
+        d = proj / ".kibitzer"; d.mkdir()
+        s0 = fresh_state(); s0["mode"] = "free"; save_state(s0, d)
+        with KibitzerSession(project_dir=proj, session_id="sess-A") as s:
+            _cfg(s)
+            s.before_call("Bash", {"command": "grep -rn foo src/"})
+        # session B uses squackit
+        with KibitzerSession(project_dir=proj, session_id="sess-B") as s:
+            _cfg(s)
+            s.after_call("mcp__plugin_squackit_squackit__search", {}, success=True)
+        # B's tool use must never produce a heed=True record for A's nudge,
+        # whether A's trial is still open or later expires as heed=False.
+        from kibitzer.session import _TRIAL_LOG
+        recs = ([json.loads(x) for x in _TRIAL_LOG.read_text().splitlines() if x.strip()]
+                if _TRIAL_LOG.exists() else [])
+        assert not any(r["heed"] for r in recs)
