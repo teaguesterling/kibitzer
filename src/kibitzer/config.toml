@@ -59,7 +59,7 @@ mode = "suggest"
 enabled = true
 
 [plugins.jetsam]
-mode = "observe"
+mode = "suggest"
 enabled = true
 
 [plugins.squackit]
