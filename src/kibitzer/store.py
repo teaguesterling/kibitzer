@@ -100,4 +100,14 @@ class KibitzerStore:
         return [dict(row) for row in rows]
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.path), timeout=5)
+        con = sqlite3.connect(str(self.path), timeout=5)
+        # SSD-friendliness: this store is advisory, non-authoritative telemetry
+        # appended once per tool call from a subprocess-per-hook. A held-open
+        # WAL+NORMAL connection isn't possible here (each hook is its own short
+        # process), and close-checkpoint would re-fsync — so synchronous=OFF is
+        # the only lever that zeroes the per-event fsync (measured 4->0). Worst
+        # case on power loss is losing the last few observed events (no decision
+        # depends on durability); WAL also avoids per-transaction journal churn.
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA synchronous=OFF")
+        return con

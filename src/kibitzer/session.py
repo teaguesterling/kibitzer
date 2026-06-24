@@ -113,6 +113,7 @@ class KibitzerSession:
         self._config: dict = {}
         self._state: dict = {}
         self._store: KibitzerStore | None = None
+        self._state_snapshot: str | None = None  # to skip no-op state.json rewrites
         self._interceptors: list | None = None
         self._available_tools: dict | None = None
         self._registered_tools: dict[str, tuple[int, int]] = {}
@@ -154,7 +155,18 @@ class KibitzerSession:
             self._store = None  # degrade gracefully
         self._policy_consumer = self._load_policy_consumer()
         self._load_docs_from_config()
+        # Snapshot post-load state so save() can skip a no-op rewrite (the pre
+        # hook usually doesn't mutate state — avoids a redundant state.json write
+        # per tool call).
+        self._state_snapshot = self._state_repr()
         self._loaded = True
+
+    def _state_repr(self) -> str:
+        """Stable serialization of state for dirty-checking before save."""
+        try:
+            return json.dumps(self._state, sort_keys=True, default=str)
+        except Exception:
+            return ""  # un-serializable → treat as dirty, always save
 
     def _load_policy_consumer(self):
         """Try to load a PolicyConsumer from the compiled policy database."""
@@ -179,9 +191,13 @@ class KibitzerSession:
         self.register_docs(doc_refs=refs, docs_root=root)
 
     def save(self) -> None:
-        """Persist state to disk."""
+        """Persist state to disk, skipping the write if nothing changed."""
+        cur = self._state_repr()
+        if self._state_snapshot is not None and cur and cur == self._state_snapshot:
+            return  # no-op: avoid a redundant state.json rewrite
         state_dir = self._project_dir / ".kibitzer"
         save_state(self._state, state_dir)
+        self._state_snapshot = cur
 
     def log_event(
         self,
