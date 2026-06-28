@@ -106,8 +106,11 @@ class TestSessionAttribution:
         # session_id flows from the constructor (the hook payload) into state,
         # gets stamped on the trial, and survives to the resolved record.
         proj = tmp_path
-        d = proj / ".kibitzer"; d.mkdir()
-        s0 = fresh_state(); s0["mode"] = "free"; save_state(s0, d)
+        d = proj / ".kibitzer"
+        d.mkdir()
+        s0 = fresh_state()
+        s0["mode"] = "free"
+        save_state(s0, d)
         with KibitzerSession(project_dir=proj, session_id="sess-A") as s:
             _cfg(s)
             s.before_call("Bash", {"command": "grep -rn foo src/"})
@@ -124,8 +127,11 @@ class TestSessionAttribution:
         # session A opens a trial; session B (same repo, shared state) uses the
         # tool. B must NOT be credited as heed for A's nudge.
         proj = tmp_path
-        d = proj / ".kibitzer"; d.mkdir()
-        s0 = fresh_state(); s0["mode"] = "free"; save_state(s0, d)
+        d = proj / ".kibitzer"
+        d.mkdir()
+        s0 = fresh_state()
+        s0["mode"] = "free"
+        save_state(s0, d)
         with KibitzerSession(project_dir=proj, session_id="sess-A") as s:
             _cfg(s)
             s.before_call("Bash", {"command": "grep -rn foo src/"})
