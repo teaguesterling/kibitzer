@@ -36,7 +36,8 @@ class KibitzerStore:
 
     def init(self) -> None:
         """Create the database and tables if they don't exist."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        from kibitzer.state import ensure_state_dir
+        ensure_state_dir(self.path.parent)
         with self._connect() as con:
             con.executescript(_SCHEMA)
             self._migrate(con)

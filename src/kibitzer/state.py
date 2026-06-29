@@ -8,6 +8,22 @@ from typing import Any
 
 STATE_FILENAME = "state.json"
 
+# Self-ignore the runtime dir so its churning artifacts (state.json, store.sqlite,
+# WAL files, intercept.log) never show as dirty in the host repo or get swept into
+# a commit. Standard auto-generated-cache pattern (cf. .pytest_cache/.gitignore).
+_GITIGNORE_BODY = "# Created automatically by kibitzer — runtime state, do not commit.\n*\n"
+
+
+def ensure_state_dir(state_dir: Path) -> None:
+    """Create `state_dir` and drop a `.gitignore` (`*`) inside it if absent."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    gitignore = state_dir / ".gitignore"
+    if not gitignore.exists():
+        try:
+            gitignore.write_text(_GITIGNORE_BODY)
+        except OSError:
+            pass
+
 
 def fresh_state(default_mode: str = "free") -> dict[str, Any]:
     """Return a blank state dict with all expected fields."""
@@ -60,7 +76,7 @@ def load_state(state_dir: Path) -> dict[str, Any]:
 
 def save_state(state: dict[str, Any], state_dir: Path) -> None:
     """Write state to state_dir/state.json atomically. Creates directory if needed."""
-    state_dir.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir(state_dir)
     state_file = state_dir / STATE_FILENAME
     tmp_file = state_file.with_suffix(".tmp")
     with open(tmp_file, "w") as f:

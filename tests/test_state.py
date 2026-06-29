@@ -106,3 +106,19 @@ def test_save_atomic_no_partial_writes(state_dir):
     # Verify the file is valid
     loaded = load_state(state_dir)
     assert loaded["mode"] == "explore"
+
+
+def test_ensure_state_dir_self_ignores(tmp_path):
+    from kibitzer.state import ensure_state_dir
+
+    d = tmp_path / ".kibitzer"
+    ensure_state_dir(d)
+    gi = d / ".gitignore"
+    assert gi.exists()
+    assert gi.read_text().strip().splitlines()[-1] == "*"  # ignores everything in the dir
+
+
+def test_save_state_drops_gitignore(tmp_path):
+    state_dir = tmp_path / ".kibitzer"
+    save_state(fresh_state(), state_dir)
+    assert (state_dir / ".gitignore").exists()
