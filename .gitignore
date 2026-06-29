@@ -11,3 +11,4 @@ build/
 .venv/
 site/
 .claude/
+uv.lock
