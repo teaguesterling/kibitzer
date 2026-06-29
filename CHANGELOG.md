@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.2
+
+### Fixes
+- **Self-ignore the `.kibitzer/` runtime dir.** `ensure_state_dir` now drops a `.kibitzer/.gitignore` (`*`) on creation, so the churning runtime artifacts (state.json, store.sqlite + WAL files, intercept.log) no longer show as dirty in the host repo or get swept into a commit. (Repos that already track `.kibitzer/` still need a one-time `git rm -r --cached .kibitzer/`.)
+
 ## v0.8.1
 
 ### Fixes
