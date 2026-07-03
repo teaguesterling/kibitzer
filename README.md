@@ -2,7 +2,7 @@
 
 *The person watching your chess game who can't help offering opinions.*
 
-Kibitzer is a [Claude Code](https://claude.ai/code) extension that watches how agents use tools and suggests better alternatives. It enforces path protection per mode, intercepts bash commands that have structured alternatives, and coaches agents toward more effective tool usage — all without an LLM in the decision loop.
+Kibitzer is a [Claude Code](https://claude.ai/code) extension that watches how agents use tools and suggests better alternatives. It applies mode-based path protection to write tools (canonicalized, fail-closed) and to the Bash write vectors it can see statically, intercepts bash commands that have structured alternatives, and coaches agents toward more effective tool usage — all without an LLM in the decision loop. It is a guidance layer that composes *under* the Claude Code permission system and an OS-level sandbox, not a replacement for either (see [Scope and limits](#scope-and-limits)).
 
 [![PyPI](https://img.shields.io/pypi/v/kibitzer)](https://pypi.org/project/kibitzer/)
 [![Python](https://img.shields.io/pypi/pyversions/kibitzer)](https://pypi.org/project/kibitzer/)
@@ -29,7 +29,9 @@ pip install kibitzer[fledgling]
 
 ### Path protection
 
-Each mode defines which paths the agent can write to. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call — including absolute paths from Claude Code.
+Each mode defines which paths the agent can write to. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call, and statically scans `Bash` commands for common write vectors (redirections, `tee`, `cp`, `mv`, `rm`, `sed -i`, `ln`, ...).
+
+Before comparing, the guard **canonicalizes** the target against the project directory — symlinks are followed, `.`/`..` are collapsed, absolute and relative spellings of the same location compare equal — and matches by path segment, so `src/` never matches `src_secret/`. The guard **fails closed**: an unknown mode, a missing target path, an unparseable Bash command in a restricted mode, or an internal guard error denies the write.
 
 ```
 Mode        Writable            Use case
@@ -50,6 +52,16 @@ Use the ChangeToolMode tool to switch modes.
 ```
 
 In testing, agents consistently read this message and call `ChangeToolMode` to switch — no documentation or pre-training needed.
+
+#### Scope and limits
+
+Path protection is one layer, not a sandbox:
+
+- **Bash coverage is static.** The guard analyzes the command string; it is not a shell interpreter. Writes hidden behind interpreter one-liners (`python -c ...`), scripts fed on stdin, `make` targets, or git commands that mutate the tree are not visible to it. Opaque write constructs it *can* spot — `xargs rm`, process substitution targets, unparseable quoting — are denied in restricted modes rather than waved through.
+- **Check-then-act window.** Symlinks are resolved when the call is checked; a race that swaps a path component between the check and the actual write is not preventable at this layer.
+- **`free` mode is unguarded by design** (`writable = ["*"]`) and is the default. Set a restricted `default_mode` in `.kibitzer/config.toml` if you want the guard active from the first call.
+
+For a hard boundary, compose kibitzer with the Claude Code permission system and an OS-level sandbox (e.g. an umwelt-compiled policy under nsjail). Kibitzer keeps a cooperating-but-fallible agent on task; the sandbox bounds what a misbehaving process can do.
 
 ### Interception
 

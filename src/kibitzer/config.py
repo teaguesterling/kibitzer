@@ -15,7 +15,9 @@ else:
 
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.toml"
 
-_FALLBACK_MODE = {"writable": ["*"], "strategy": ""}
+# Unknown/unrecognized modes are read-only: the guard fails CLOSED rather
+# than falling back to unrestricted writes.
+_FALLBACK_MODE = {"writable": [], "strategy": ""}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -108,5 +110,9 @@ def _load_from_ducklog(db_path: Path) -> dict | None:
 
 
 def get_mode_policy(config: dict, mode: str) -> dict:
-    """Get the writable/strategy policy for a mode. Unknown modes are unrestricted."""
-    return config.get("modes", {}).get(mode, _FALLBACK_MODE)
+    """Get the writable/strategy policy for a mode.
+
+    Unknown modes are read-only (fail closed): a misspelled or stale mode
+    name must never grant more access than a recognized one.
+    """
+    return config.get("modes", {}).get(mode, dict(_FALLBACK_MODE))
