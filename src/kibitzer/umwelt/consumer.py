@@ -22,7 +22,8 @@ class ModePolicy:
     """Resolved policy for a single mode."""
 
     name: str
-    writable: list[str] = field(default_factory=lambda: ["*"])
+    # Default is read-only: absent policy data must fail closed.
+    writable: list[str] = field(default_factory=list)
     strategy: str = ""
     coaching_frequency: int | None = None
     max_consecutive_failures: int | None = None
@@ -177,9 +178,13 @@ class PolicyConsumer:
 
 
 def _parse_writable(value: str | None) -> list[str]:
-    """Parse writable property from resolved string to path list."""
+    """Parse writable property from resolved string to path list.
+
+    A mode with no resolved ``writable`` property is read-only: the
+    guard fails closed rather than treating absence as unrestricted.
+    """
     if value is None:
-        return ["*"]
+        return []
     value = value.strip()
     if not value:
         return []

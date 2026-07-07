@@ -20,7 +20,11 @@ from kibitzer.controller.mode_controller import (
     check_transitions,
     update_counters,
 )
-from kibitzer.guards.path_guard import check_path
+from kibitzer.guards.path_guard import (
+    PathGuardResult,
+    check_bash_writes,
+    check_path,
+)
 from kibitzer.interceptors.base import InterceptMode
 from kibitzer.interceptors.registry import build_registry
 from kibitzer.state import load_state, save_state
@@ -35,8 +39,14 @@ _LOG_FILE = ".kibitzer/intercept.log"
 # command, not quoted prose.
 _HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?^\s*\1\b", re.DOTALL | re.MULTILINE)
 
+# The backreference regex above is superlinear on adversarial input; skip
+# stripping past this cap rather than risk a regex blow-up (issue #5).
+_HEREDOC_SCAN_CAP = 65536
+
 
 def _strip_heredocs(command: str) -> str:
+    if len(command) > _HEREDOC_SCAN_CAP:
+        return command
     return _HEREDOC_RE.sub("<<HEREDOC", command)
 
 
@@ -344,21 +354,30 @@ class KibitzerSession:
     def validate_calls(self, calls: list[dict]) -> list[CallResult]:
         """Batch validation — check calls without updating state."""
         violations = []
-        mode_policy = self._resolve_mode_policy(self.mode)
+        mode_policy = self._safe_mode_policy()
         for call in calls:
             tool = call.get("tool", "")
             inp = call.get("input", {})
+            result = None
             if tool in _WRITE_TOOLS:
                 file_path = (
                     inp.get("file_path", "") or inp.get("notebook_path", "")
                 )
-                if file_path:
-                    file_path = self._relativize(file_path)
-                    result = check_path(file_path, mode_policy)
-                    if not result.allowed:
-                        violations.append(
-                            CallResult(denied=True, reason=result.reason, tool=tool)
-                        )
+                result = self._checked_guard(
+                    check_path, file_path, mode_policy,
+                )
+            elif tool in _INTERCEPT_TOOLS:
+                command = inp.get("command", "")
+                if command:
+                    result = self._checked_guard(
+                        check_bash_writes,
+                        _strip_heredocs(command),
+                        mode_policy,
+                    )
+            if result is not None and not result.allowed:
+                violations.append(
+                    CallResult(denied=True, reason=result.reason, tool=tool)
+                )
         return violations
 
     def change_mode(self, mode: str, reason: str = "") -> dict[str, Any]:
@@ -1132,30 +1151,76 @@ class KibitzerSession:
                 return result
         return get_mode_policy(self._config, mode)
 
+    def _safe_mode_policy(self) -> dict[str, Any]:
+        """Resolve the current mode policy, failing CLOSED on any error."""
+        try:
+            return self._resolve_mode_policy(self.mode)
+        except Exception:
+            return {"writable": [], "strategy": ""}
+
+    def _checked_guard(self, guard, target, mode_policy) -> PathGuardResult:
+        """Run a guard function; any exception denies (fail closed).
+
+        The guards already catch their own errors, but this also covers
+        failures in the call itself so safe_mode's blanket exception
+        handling can never turn a guard failure into an allow.
+        """
+        try:
+            return guard(target, mode_policy, project_dir=self._project_dir)
+        except Exception as exc:
+            return PathGuardResult(
+                allowed=False,
+                reason=(
+                    f"Path guard error: {exc!r} — denying (fail closed)."
+                ),
+            )
+
+    def _log_denial(
+        self, tool_name: str, tool_input: dict, reason: str,
+    ) -> None:
+        """Record a denial event; logging failures never mask the denial."""
+        if not self._store:
+            return
+        try:
+            self._store.append_event(
+                event_type="denial",
+                session_id=self._state.get("session_id"),
+                tool_name=tool_name,
+                tool_input=json.dumps(tool_input)[:500],
+                mode=self.mode,
+                data=json.dumps({"reason": reason}),
+            )
+        except Exception:
+            pass
+
     def _before_call_impl(
         self, tool_name: str, tool_input: dict,
     ) -> CallResult | None:
-        mode_policy = self._resolve_mode_policy(self.mode)
+        mode_policy = self._safe_mode_policy()
 
-        # Path guard
+        # Path guard — canonicalizes against the project dir and fails
+        # closed (an error in the guard denies rather than allows).
         if tool_name in _WRITE_TOOLS:
             file_path = (
                 tool_input.get("file_path", "")
                 or tool_input.get("notebook_path", "")
             )
-            if file_path:
-                file_path = self._relativize(file_path)
-                result = check_path(file_path, mode_policy)
+            result = self._checked_guard(check_path, file_path, mode_policy)
+            if not result.allowed:
+                self._log_denial(tool_name, tool_input, result.reason)
+                return CallResult(
+                    denied=True, reason=result.reason, tool=tool_name,
+                )
+
+        # Bash write vectors go through the same canonicalized guard.
+        if tool_name in _INTERCEPT_TOOLS:
+            command = tool_input.get("command", "")
+            if command:
+                result = self._checked_guard(
+                    check_bash_writes, _strip_heredocs(command), mode_policy,
+                )
                 if not result.allowed:
-                    if self._store:
-                        self._store.append_event(
-                            event_type="denial",
-                            session_id=self._state.get("session_id"),
-                            tool_name=tool_name,
-                            tool_input=json.dumps(tool_input)[:500],
-                            mode=self.mode,
-                            data=json.dumps({"reason": result.reason}),
-                        )
+                    self._log_denial(tool_name, tool_input, result.reason)
                     return CallResult(
                         denied=True, reason=result.reason, tool=tool_name,
                     )
@@ -1337,15 +1402,6 @@ class KibitzerSession:
         if isinstance(tool_result, dict) and "error" in tool_result:
             return False
         return True
-
-    def _relativize(self, file_path: str) -> str:
-        try:
-            fp = Path(file_path)
-            if fp.is_absolute():
-                return str(fp.relative_to(self._project_dir))
-        except (ValueError, TypeError):
-            pass
-        return file_path
 
     # --- A/B nudge experiment ---
 

@@ -272,7 +272,7 @@ def validate_staged(fmt: str):
     from kibitzer.guards.path_guard import check_path
     violations = []
     for path in staged:
-        guard_result = check_path(path, policy)
+        guard_result = check_path(path, policy, project_dir=Path.cwd())
         if not guard_result.allowed:
             violations.append({"path": path, "reason": guard_result.reason})
 

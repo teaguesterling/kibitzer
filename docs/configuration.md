@@ -72,7 +72,7 @@ Each mode defines what paths the agent can write to and an optional strategy ins
 | `writable` | list of strings | Path prefixes the agent can write to. `["*"]` = unrestricted. `[]` = read-only. |
 | `strategy` | string | Optional instruction injected when the mode is active. Empty string = none. |
 
-**Writable paths** are prefix-matched: `"src/"` matches `src/foo/bar.py`. Exact filenames also work: `"README.md"` matches `README.md` but not `src/README.md`.
+**Writable paths** are matched by canonical path containment (relative to the project dir, symlinks resolved, `..` collapsed): `"src/"` matches `src/foo/bar.py` and any spelling that resolves inside `src/`, but not the sibling `src_secret/`. Exact filenames also work: `"README.md"` matches `README.md` but not `src/README.md` or `README.md.bak`. Unknown mode names resolve to `[]` (read-only — the guard fails closed).
 
 **Custom modes:** You can define new modes beyond the six built in (free, implement,
 test, docs, explore, review):

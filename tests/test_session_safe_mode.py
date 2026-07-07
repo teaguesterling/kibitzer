@@ -14,12 +14,15 @@ def _project(tmp_path):
 
 
 class TestSafeMode:
-    def test_before_call_returns_none_on_error(self, tmp_path):
+    def test_before_call_guard_error_denies(self, tmp_path):
+        # A guard failure must fail CLOSED — safe mode swallows other
+        # errors, but never converts a broken path guard into an allow.
         proj = _project(tmp_path)
         with patch("kibitzer.session.check_path", side_effect=RuntimeError("boom")):
             with KibitzerSession(project_dir=proj, safe_mode=True) as session:
                 result = session.before_call("Edit", {"file_path": "src/foo.py"})
-                assert result is None
+                assert result is not None
+                assert result.denied
 
     def test_after_call_returns_none_on_error(self, tmp_path):
         proj = _project(tmp_path)
@@ -38,10 +41,20 @@ class TestSafeMode:
 
     def test_normal_mode_raises(self, tmp_path):
         proj = _project(tmp_path)
-        with patch("kibitzer.session.check_path", side_effect=RuntimeError("boom")):
+        with patch("kibitzer.session.update_counters", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 with KibitzerSession(project_dir=proj) as session:
-                    session.before_call("Edit", {"file_path": "src/foo.py"})
+                    session.after_call("Edit", {}, success=True)
+
+    def test_normal_mode_guard_error_still_denies(self, tmp_path):
+        # Even without safe mode, guard errors deny instead of raising —
+        # the caller gets an actionable denial, not a crash-then-allow.
+        proj = _project(tmp_path)
+        with patch("kibitzer.session.check_path", side_effect=RuntimeError("boom")):
+            with KibitzerSession(project_dir=proj) as session:
+                result = session.before_call("Edit", {"file_path": "src/foo.py"})
+                assert result is not None
+                assert result.denied
 
     def test_context_manager_saves_on_exception(self, tmp_path):
         proj = _project(tmp_path)
