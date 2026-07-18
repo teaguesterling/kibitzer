@@ -94,18 +94,28 @@ class TestPreToolUseEdit:
         result = handle_pre_tool_use(hook, project_dir=project)
         assert result is None
 
-    def test_edit_test_in_implement_denies(self, project):
+    def test_edit_test_in_implement_allows(self, project):
+        """tests/ is writable in implement mode (test-alongside-code TDD)."""
         hook = _pre_hook("Edit", {
             "file_path": "tests/test_auth.py",
             "old_string": "assert result == True",
             "new_string": "assert result is True",
         })
         result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is None
+
+    def test_edit_unlisted_path_in_implement_denies(self, project):
+        hook = _pre_hook("Edit", {
+            "file_path": "notebooks/explore.py",
+            "old_string": "a",
+            "new_string": "b",
+        })
+        result = handle_pre_tool_use(hook, project_dir=project)
         assert result is not None
         output = result["hookSpecificOutput"]
         assert output["permissionDecision"] == "deny"
         assert "ChangeToolMode" in output["permissionDecisionReason"]
-        assert "tests/test_auth.py" in output["permissionDecisionReason"]
+        assert "notebooks/explore.py" in output["permissionDecisionReason"]
 
     def test_edit_test_in_test_dev_allows(self, project_in_mode):
         proj = project_in_mode("test")
@@ -197,14 +207,14 @@ class TestPreToolUseWrite:
         result = handle_pre_tool_use(hook, project_dir=project)
         assert result is None
 
-    def test_write_new_test_file_in_implement_denies(self, project):
+    def test_write_new_test_file_in_implement_allows(self, project):
+        """tests/ is writable in implement mode (test-alongside-code TDD)."""
         hook = _pre_hook("Write", {
             "file_path": "tests/test_helpers.py",
             "content": "def test_helper():\n    assert True\n",
         })
         result = handle_pre_tool_use(hook, project_dir=project)
-        assert result is not None
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result is None
 
     def test_write_config_file_in_implement_denies(self, project):
         """Config files aren't in src/ or lib/, so denied in implement mode."""
@@ -305,8 +315,14 @@ class TestPreToolUseAbsolutePaths:
         result = handle_pre_tool_use(hook, project_dir=project)
         assert result is None
 
-    def test_absolute_test_path_denied_in_implement(self, project):
+    def test_absolute_test_path_allowed_in_implement(self, project):
         abs_path = str(project / "tests" / "test_foo.py")
+        hook = _pre_hook("Edit", {"file_path": abs_path, "old_string": "a", "new_string": "b"})
+        result = handle_pre_tool_use(hook, project_dir=project)
+        assert result is None
+
+    def test_absolute_unlisted_path_denied_in_implement(self, project):
+        abs_path = str(project / "notebooks" / "nb.py")
         hook = _pre_hook("Edit", {"file_path": abs_path, "old_string": "a", "new_string": "b"})
         result = handle_pre_tool_use(hook, project_dir=project)
         assert result is not None
@@ -815,7 +831,7 @@ class TestPreToolUseOutputFormat:
     """Verify deny/suggest output matches Claude Code protocol."""
 
     def test_deny_output_has_required_fields(self, project):
-        hook = _pre_hook("Edit", {"file_path": "tests/foo.py", "old_string": "a", "new_string": "b"})
+        hook = _pre_hook("Edit", {"file_path": "notebooks/foo.py", "old_string": "a", "new_string": "b"})
         result = handle_pre_tool_use(hook, project_dir=project)
 
         assert result is not None

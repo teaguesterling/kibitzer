@@ -84,7 +84,7 @@ class TestPreToolUseStdio:
         """Denied tool call = exit 0, JSON with permissionDecision on stdout."""
         hook_input = {
             "tool_name": "Edit",
-            "tool_input": {"file_path": "tests/test_foo.py", "old_string": "a", "new_string": "b"},
+            "tool_input": {"file_path": "notebooks/nb_foo.py", "old_string": "a", "new_string": "b"},
         }
         code, stdout, stderr = _run_hook(
             "kibitzer.hooks.pre_tool_use", hook_input, str(project),
@@ -103,7 +103,7 @@ class TestPreToolUseStdio:
         """Deny reason should tell the agent how to fix the situation."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "tests/new_test.py", "content": "# test"},
+            "tool_input": {"file_path": "notebooks/new_nb.py", "content": "# test"},
         }
         code, stdout, _ = _run_hook(
             "kibitzer.hooks.pre_tool_use", hook_input, str(project),

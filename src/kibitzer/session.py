@@ -20,7 +20,7 @@ from kibitzer.controller.mode_controller import (
     check_transitions,
     update_counters,
 )
-from kibitzer.guards.path_guard import check_path
+from kibitzer.guards.path_guard import check_floor, check_path
 from kibitzer.interceptors.base import InterceptMode
 from kibitzer.interceptors.registry import build_registry
 from kibitzer.state import load_state, save_state
@@ -353,8 +353,9 @@ class KibitzerSession:
                     inp.get("file_path", "") or inp.get("notebook_path", "")
                 )
                 if file_path:
-                    file_path = self._relativize(file_path)
-                    result = check_path(file_path, mode_policy)
+                    result = check_path(
+                        file_path, mode_policy, project_dir=self._project_dir,
+                    )
                     if not result.allowed:
                         violations.append(
                             CallResult(denied=True, reason=result.reason, tool=tool)
@@ -1144,8 +1145,16 @@ class KibitzerSession:
                 or tool_input.get("notebook_path", "")
             )
             if file_path:
-                file_path = self._relativize(file_path)
-                result = check_path(file_path, mode_policy)
+                # Safety floor: mode-independent deny-list, checked BEFORE
+                # the mode's writable set (applies even in free mode).
+                floor_denial = self._check_floor(
+                    tool_name, tool_input, file_path, mode_policy,
+                )
+                if floor_denial is not None:
+                    return floor_denial
+                result = check_path(
+                    file_path, mode_policy, project_dir=self._project_dir,
+                )
                 if not result.allowed:
                     if self._store:
                         self._store.append_event(
@@ -1194,6 +1203,36 @@ class KibitzerSession:
                         engaged = self._state.get("engaged_plugins", [])
                         if plugin.name in already or plugin.name in engaged:
                             self._log_intercept(command, suggestion)
+                            return None
+                        # Adaptive decay: the agent has ignored this plugin's
+                        # nudges N consecutive times (across sessions) — stop
+                        # showing them. Intercepts are still logged, and the
+                        # suppression is recorded distinctly (arm="suppressed")
+                        # so it never pollutes the nudge/control heed metrics.
+                        threshold = self._decay_threshold()
+                        streak = self._state.get(
+                            "nudge_ignore_streaks", {},
+                        ).get(plugin.name, 0)
+                        if threshold > 0 and streak >= threshold:
+                            already.append(plugin.name)
+                            self._log_intercept(command, suggestion)
+                            self._append_trial_log({
+                                "plugin": plugin.name, "arm": "suppressed",
+                                "heed": None, "turns_to_heed": None,
+                                "session": self._state.get("session_id"),
+                                "ts": time.time(),
+                            })
+                            if self._store:
+                                self._store.append_event(
+                                    event_type="nudge_suppressed",
+                                    session_id=self._state.get("session_id"),
+                                    mode=self.mode,
+                                    data=json.dumps({
+                                        "plugin": plugin.name,
+                                        "ignore_streak": streak,
+                                    }),
+                                    source="kibitzer",
+                                )
                             return None
                         already.append(plugin.name)
                         # A/B trial: randomly NUDGE vs CONTROL (heed resolved in
@@ -1338,14 +1377,65 @@ class KibitzerSession:
             return False
         return True
 
-    def _relativize(self, file_path: str) -> str:
+    def _check_floor(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        file_path: str,
+        mode_policy: dict,
+    ) -> CallResult | None:
+        """Run the mode-independent safety floor. Returns a denial or None.
+
+        Overrides, in order: [floor] enabled=false, [floor] allow patterns
+        (inside check_floor), or an EXPLICIT (non-"*") writable entry in the
+        current mode. Any exception fails OPEN (allow + floor_error event) —
+        a broken floor must never block normal work.
+        """
+        floor_cfg = self._config.get("floor", {})
+        if not floor_cfg.get("enabled", True):
+            return None
         try:
-            fp = Path(file_path)
-            if fp.is_absolute():
-                return str(fp.relative_to(self._project_dir))
-        except (ValueError, TypeError):
-            pass
-        return file_path
+            floor = check_floor(file_path, floor_cfg, self._project_dir)
+        except Exception as exc:
+            try:
+                self.log_event(
+                    "floor_error",
+                    data=json.dumps({
+                        "error": f"{type(exc).__name__}: {exc}"[:300],
+                        "path": str(file_path)[:300],
+                    }),
+                    source="kibitzer",
+                )
+            except Exception:
+                pass
+            return None  # fail open
+        if floor.allowed:
+            return None
+        # Mode override: a mode whose writable set explicitly grants this
+        # path (not via "*") outranks the floor — mode change is a
+        # deliberate, human/context-imposed lever.
+        explicit = [w for w in mode_policy.get("writable", []) if w != "*"]
+        if explicit and check_path(
+            file_path, {"writable": explicit}, project_dir=self._project_dir,
+        ).allowed:
+            return None
+        # Instrument: floor blocks are store events so future sessions can
+        # measure value (blocked a mistake) vs friction (blocked a wanted
+        # write) via the event/heed infra.
+        if self._store:
+            self._store.append_event(
+                event_type="floor_block",
+                session_id=self._state.get("session_id"),
+                tool_name=tool_name,
+                tool_input=json.dumps(tool_input)[:500],
+                mode=self.mode,
+                data=json.dumps({
+                    "rule": floor.rule,
+                    "path": str(file_path)[:300],
+                }),
+                source="kibitzer",
+            )
+        return CallResult(denied=True, reason=floor.reason, tool=tool_name)
 
     # --- A/B nudge experiment ---
 
@@ -1354,6 +1444,13 @@ class KibitzerSession:
 
     def _heed_window(self) -> int:
         return int(self._config.get("experiment", {}).get("heed_window", 10))
+
+    def _decay_threshold(self) -> int:
+        """Consecutive un-heeded NUDGE trials before a plugin's nudges are
+        suppressed (0 disables decay)."""
+        return int(
+            self._config.get("experiment", {}).get("decay_threshold", 3)
+        )
 
     def _append_trial_log(self, record: dict) -> None:
         try:
@@ -1373,6 +1470,15 @@ class KibitzerSession:
         })
 
     def _close_trial(self, trial: dict, heed: bool, turns: int) -> None:
+        # Decay bookkeeping: track consecutive un-heeded NUDGE trials per
+        # plugin (control trials were never shown, so an un-heeded control
+        # doesn't count as "ignored"); any heed resets the streak. Persists
+        # in state.json, so the streak spans sessions.
+        streaks = self._state.setdefault("nudge_ignore_streaks", {})
+        if heed:
+            streaks[trial["plugin"]] = 0
+        elif trial.get("arm") == "nudge":
+            streaks[trial["plugin"]] = streaks.get(trial["plugin"], 0) + 1
         self._append_trial_log({
             "plugin": trial["plugin"], "arm": trial["arm"], "heed": heed,
             "turns_to_heed": turns if heed else None,

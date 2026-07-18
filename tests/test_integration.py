@@ -18,9 +18,9 @@ def project(tmp_path):
 
 
 class TestPathGuardEndToEnd:
-    def test_implement_blocks_test_edit(self, project):
+    def test_implement_blocks_unlisted_edit(self, project):
         result = handle_pre_tool_use(
-            {"tool_name": "Edit", "tool_input": {"file_path": "tests/test_foo.py"}},
+            {"tool_name": "Edit", "tool_input": {"file_path": "notebooks/nb_foo.py"}},
             project_dir=project,
         )
         assert result is not None
@@ -40,7 +40,7 @@ class TestPathGuardEndToEnd:
         save_state(state, project / ".kibitzer")
 
         result = handle_pre_tool_use(
-            {"tool_name": "Edit", "tool_input": {"file_path": "tests/test_foo.py"}},
+            {"tool_name": "Edit", "tool_input": {"file_path": "notebooks/nb_foo.py"}},
             project_dir=project,
         )
         assert result is None

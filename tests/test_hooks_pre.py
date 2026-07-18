@@ -28,23 +28,23 @@ class TestPreToolUsePathGuard:
         assert result is None
 
     def test_deny_edit_in_protected_path(self, implement_state):
-        hook_input = {"tool_name": "Edit", "tool_input": {"file_path": "tests/test_foo.py"}}
+        hook_input = {"tool_name": "Edit", "tool_input": {"file_path": "notebooks/nb_foo.py"}}
         result = handle_pre_tool_use(hook_input, project_dir=implement_state.parent)
         assert result is not None
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_allow_read_tool(self, implement_state):
-        hook_input = {"tool_name": "Read", "tool_input": {"file_path": "tests/test_foo.py"}}
+        hook_input = {"tool_name": "Read", "tool_input": {"file_path": "notebooks/nb_foo.py"}}
         result = handle_pre_tool_use(hook_input, project_dir=implement_state.parent)
         assert result is None
 
     def test_allow_everything_in_free_mode(self, free_state):
-        hook_input = {"tool_name": "Edit", "tool_input": {"file_path": "tests/test_foo.py"}}
+        hook_input = {"tool_name": "Edit", "tool_input": {"file_path": "notebooks/nb_foo.py"}}
         result = handle_pre_tool_use(hook_input, project_dir=free_state.parent)
         assert result is None
 
     def test_deny_write_tool(self, implement_state):
-        hook_input = {"tool_name": "Write", "tool_input": {"file_path": "tests/new.py"}}
+        hook_input = {"tool_name": "Write", "tool_input": {"file_path": "notebooks/new.py"}}
         result = handle_pre_tool_use(hook_input, project_dir=implement_state.parent)
         assert result is not None
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

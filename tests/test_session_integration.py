@@ -18,7 +18,7 @@ class TestSessionMatchesHooks:
     def test_deny_matches(self, tmp_path):
         proj = _project(tmp_path)
         with KibitzerSession(project_dir=proj) as session:
-            result = session.before_call("Edit", {"file_path": "tests/foo.py"})
+            result = session.before_call("Edit", {"file_path": "notebooks/foo.py"})
         hook_output = result.to_hook_output("PreToolUse")
         assert hook_output["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert "ChangeToolMode" in hook_output["hookSpecificOutput"]["permissionDecisionReason"]
@@ -69,7 +69,7 @@ class TestStoreEvents:
     def test_denial_writes_event(self, tmp_path):
         proj = _project(tmp_path)
         with KibitzerSession(project_dir=proj) as session:
-            session.before_call("Edit", {"file_path": "tests/foo.py"})
+            session.before_call("Edit", {"file_path": "notebooks/foo.py"})
 
         from kibitzer.store import KibitzerStore
         store = KibitzerStore(proj / ".kibitzer" / "store.sqlite")

@@ -1,13 +1,17 @@
 from pathlib import Path
 from kibitzer.config import load_config, get_mode_policy
 
+_IMPLEMENT_WRITABLE = [
+    "src/", "lib/", "tests/", "test/", "~/.claude/projects/*/memory/",
+]
+
 
 def test_load_default_config():
     """Loading with no project config returns defaults."""
     config = load_config(project_dir=Path("/nonexistent"))
     assert "modes" in config
     assert "implement" in config["modes"]
-    assert config["modes"]["implement"]["writable"] == ["src/", "lib/"]
+    assert config["modes"]["implement"]["writable"] == _IMPLEMENT_WRITABLE
 
 
 def test_load_default_has_all_modes():
@@ -35,7 +39,7 @@ strategy = "custom strategy"
 def test_get_mode_policy():
     config = load_config(project_dir=Path("/nonexistent"))
     policy = get_mode_policy(config, "implement")
-    assert policy["writable"] == ["src/", "lib/"]
+    assert policy["writable"] == _IMPLEMENT_WRITABLE
     assert policy["strategy"] == ""
 
 
@@ -73,7 +77,7 @@ def test_corrupt_project_config_uses_defaults(tmp_path):
     config = load_config(project_dir=tmp_path)
     # Should have all default modes
     assert "implement" in config["modes"]
-    assert config["modes"]["implement"]["writable"] == ["src/", "lib/"]
+    assert config["modes"]["implement"]["writable"] == _IMPLEMENT_WRITABLE
 
 
 def test_empty_project_config_uses_defaults(tmp_path):

@@ -3,15 +3,19 @@ writable = ["*"]
 strategy = ""
 
 [modes.implement]
-writable = ["src/", "lib/"]
+# tests/ included so test-alongside-code TDD doesn't thrash between modes.
+# Absolute / ~-prefixed entries are expanded at check time (globs allowed);
+# the memory-dir entry lets Claude auto-memory writes through without a
+# mode flip.
+writable = ["src/", "lib/", "tests/", "test/", "~/.claude/projects/*/memory/"]
 strategy = ""
 
 [modes.test]
-writable = ["tests/", "test/", "spec/"]
+writable = ["tests/", "test/", "spec/", "~/.claude/projects/*/memory/"]
 strategy = "Write tests for expected behavior, not current behavior."
 
 [modes.docs]
-writable = ["docs/", "README.md", "CHANGELOG.md"]
+writable = ["docs/", "README.md", "CHANGELOG.md", "~/.claude/projects/*/memory/"]
 strategy = "Explain the why, not the what."
 
 [modes.explore]
@@ -27,6 +31,24 @@ default_mode = "free"
 max_consecutive_failures = 3
 max_turns_in_explore = 20
 
+[floor]
+# Mode-INDEPENDENT safety floor, checked BEFORE any mode's writable set —
+# even `free` blocks genuinely dangerous writes (secret dirs, system paths,
+# raw .git internals, writes outside the repo). Built-in rules live in
+# guards/path_guard.py; `deny` adds patterns, `allow` overrides everything
+# (globs; `~` expanded at check time; trailing `/` matches the subtree).
+# Repo detection failing means the outside-repo rule is skipped (fail open).
+# Blocks are logged to the store as `floor_block` events so value vs
+# friction is measurable across sessions.
+enabled = true
+deny = []
+allow = [
+    "~/.claude/projects/*/memory/",  # Claude auto-memory
+    "~/.claude/inbox/",              # claude-inbox terminal notes
+    "~/.claude/CLAUDE.md",           # global memory instructions
+    "~/.claude/settings.json",       # harness settings (update-config skill)
+]
+
 [experiment]
 # A/B test: does an advisory nudge change the agent's next choice? Each eligible
 # bypass forms a trial — with probability `nudge_probability` it's NUDGED, else
@@ -36,6 +58,12 @@ max_turns_in_explore = 20
 # nudge_probability = 1.0 to always nudge (no experiment).
 nudge_probability = 0.5
 heed_window = 10
+# Adaptive nudge decay: after this many CONSECUTIVE un-heeded NUDGE trials
+# for a plugin (streak persists across sessions in state.json), stop showing
+# that plugin's nudges. Intercepts are still logged, and each suppression is
+# recorded with disposition arm="suppressed" (kept out of heed metrics).
+# A heeded nudge resets the streak. 0 disables decay.
+decay_threshold = 3
 
 [coach]
 frequency = 5

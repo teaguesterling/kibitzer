@@ -90,7 +90,7 @@ class TestBeforeCall:
             result = session.before_call("Edit", {"file_path": "src/foo.py"})
             assert result is None
 
-    def test_deny_test_edit_in_implement(self, tmp_path):
+    def test_deny_unlisted_edit_in_implement(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
         state_dir.mkdir()
         state = fresh_state()
@@ -98,7 +98,7 @@ class TestBeforeCall:
         save_state(state, state_dir)
 
         with KibitzerSession(project_dir=tmp_path) as session:
-            result = session.before_call("Edit", {"file_path": "tests/foo.py"})
+            result = session.before_call("Edit", {"file_path": "notebooks/foo.py"})
             assert result is not None
             assert result.denied
             assert "ChangeToolMode" in result.reason
@@ -175,11 +175,11 @@ class TestValidateCalls:
         with KibitzerSession(project_dir=tmp_path) as session:
             violations = session.validate_calls([
                 {"tool": "Edit", "input": {"file_path": "src/ok.py"}},
-                {"tool": "Edit", "input": {"file_path": "tests/blocked.py"}},
+                {"tool": "Edit", "input": {"file_path": "notebooks/blocked.py"}},
             ])
             assert len(violations) == 1
             assert violations[0].denied
-            assert "tests/blocked.py" in violations[0].reason
+            assert "notebooks/blocked.py" in violations[0].reason
 
     def test_does_not_modify_state(self, tmp_path):
         state_dir = tmp_path / ".kibitzer"
@@ -189,7 +189,7 @@ class TestValidateCalls:
         with KibitzerSession(project_dir=tmp_path) as session:
             before = session.state["total_calls"]
             session.validate_calls([
-                {"tool": "Edit", "input": {"file_path": "tests/foo.py"}},
+                {"tool": "Edit", "input": {"file_path": "notebooks/foo.py"}},
             ])
             assert session.state["total_calls"] == before
 

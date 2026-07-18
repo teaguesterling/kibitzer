@@ -39,6 +39,8 @@ def fresh_state(default_mode: str = "free") -> dict[str, Any]:
         "mode_switches": 0,
         "tools_used_in_mode": {},
         "suggestions_given": [],
+        # plugin -> consecutive un-heeded NUDGE trials (adaptive nudge decay)
+        "nudge_ignore_streaks": {},
         "model": None,
         "session_id": None,
         # Coach observation counters

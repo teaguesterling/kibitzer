@@ -69,7 +69,7 @@ class TestValidateProgram:
         with KibitzerSession(project_dir=proj) as session:
             result = session.validate_program({
                 "calls": [
-                    {"tool": "Edit", "input": {"file_path": "tests/foo.py"}},
+                    {"tool": "Edit", "input": {"file_path": "notebooks/foo.py"}},
                 ],
             })
             assert result.denied
