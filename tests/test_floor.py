@@ -74,6 +74,15 @@ class TestFloorBlocks:
         assert not r.allowed
         assert r.rule == "outside-repo"
 
+    def test_allows_sibling_repo(self, repo, home, tmp_path):
+        # Multi-repo sessions write to sibling working trees constantly —
+        # a target inside ANY git repo is deliberate dev work, not a stray.
+        sibling = tmp_path / "sibling"
+        (sibling / ".git").mkdir(parents=True)
+        (sibling / "src").mkdir()
+        r = _floor(sibling / "src" / "f.py", repo, home)
+        assert r.allowed
+
     def test_blocks_system_paths(self, repo, home):
         for p in ("/etc/passwd", "/usr/local/bin/x", "/boot/grub/grub.cfg"):
             r = _floor(p, repo, home)

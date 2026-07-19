@@ -212,13 +212,19 @@ def check_floor(
                 )
 
     # 7. Outside the repo root. Skipped entirely when no repo was found
-    #    (fail open); temp dirs and the scratchpad stay writable.
+    #    (fail open); temp dirs and the scratchpad stay writable. A target
+    #    inside ANY git working tree is deliberate dev work (multi-repo
+    #    sessions write to sibling repos constantly), not a stray write —
+    #    the secrets/system/credential rules above already ran on it.
     if repo_root is not None and not in_repo and not _is_under(resolved, base):
         tmps = (
             _default_tmp_dirs() if tmp_dirs is None
             else [_resolve(Path(t)) for t in tmp_dirs]
         )
-        if not any(_is_under(resolved, t) for t in tmps):
+        if (
+            not any(_is_under(resolved, t) for t in tmps)
+            and find_repo_root(resolved.parent) is None
+        ):
             return _floor_block(
                 "outside-repo", file_path,
                 f"outside repo root {repo_root}",
