@@ -478,21 +478,29 @@ class TestPreToolUseBashInterception:
 # ===========================================================================
 
 class TestPreToolUseEdgeCases:
-    def test_missing_file_path_allows(self, project):
-        """Edit with no file_path should pass (nothing to guard)."""
+    def test_missing_file_path_denies_in_restricted_mode(self, project):
+        """Edit with no file_path fails CLOSED in a restricted mode.
+
+        A write call whose target the guard cannot see must not slip
+        past it (previously this skipped the guard entirely).
+        """
         hook = _pre_hook("Edit", {"old_string": "a", "new_string": "b"})
         result = handle_pre_tool_use(hook, project_dir=project)
-        assert result is None
+        assert result is not None
+        decision = result["hookSpecificOutput"]["permissionDecision"]
+        assert decision == "deny"
 
     def test_unknown_tool_allows(self, project):
         hook = _pre_hook("SomeNewTool", {"arg": "value"})
         result = handle_pre_tool_use(hook, project_dir=project)
         assert result is None
 
-    def test_empty_tool_input_allows(self, project):
+    def test_empty_tool_input_denies_in_restricted_mode(self, project):
         hook = _pre_hook("Edit", {})
         result = handle_pre_tool_use(hook, project_dir=project)
-        assert result is None
+        assert result is not None
+        decision = result["hookSpecificOutput"]["permissionDecision"]
+        assert decision == "deny"
 
     def test_no_state_file_uses_default_mode(self, tmp_path):
         """No .kibitzer dir = fresh state = implement mode."""

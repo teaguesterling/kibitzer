@@ -43,10 +43,11 @@ def test_get_mode_policy():
     assert policy["strategy"] == ""
 
 
-def test_get_mode_policy_unknown_mode():
+def test_get_mode_policy_unknown_mode_fails_closed():
+    # An unknown/misspelled mode must be read-only, never unrestricted.
     config = load_config(project_dir=Path("/nonexistent"))
     policy = get_mode_policy(config, "nonexistent_mode")
-    assert policy["writable"] == ["*"]
+    assert policy["writable"] == []
 
 
 def test_controller_config():

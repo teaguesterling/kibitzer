@@ -21,7 +21,13 @@ from kibitzer.controller.mode_controller import (
     check_transitions,
     update_counters,
 )
-from kibitzer.guards.path_guard import check_floor, check_path
+from kibitzer.guards.path_guard import (
+    PathGuardResult,
+    check_bash_writes,
+    check_floor,
+    check_path,
+    extract_bash_write_targets,
+)
 from kibitzer.interceptors.base import InterceptMode
 from kibitzer.interceptors.registry import build_registry
 from kibitzer.state import load_state, save_state
@@ -36,8 +42,14 @@ _LOG_FILE = ".kibitzer/intercept.log"
 # command, not quoted prose.
 _HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?.*?^\s*\1\b", re.DOTALL | re.MULTILINE)
 
+# The backreference regex above is superlinear on adversarial input; skip
+# stripping past this cap rather than risk a regex blow-up (issue #5).
+_HEREDOC_SCAN_CAP = 65536
+
 
 def _strip_heredocs(command: str) -> str:
+    if len(command) > _HEREDOC_SCAN_CAP:
+        return command
     return _HEREDOC_RE.sub("<<HEREDOC", command)
 
 
@@ -345,22 +357,30 @@ class KibitzerSession:
     def validate_calls(self, calls: list[dict]) -> list[CallResult]:
         """Batch validation — check calls without updating state."""
         violations = []
-        mode_policy = self._resolve_mode_policy(self.mode)
+        mode_policy = self._safe_mode_policy()
         for call in calls:
             tool = call.get("tool", "")
             inp = call.get("input", {})
+            result = None
             if tool in _WRITE_TOOLS:
                 file_path = (
                     inp.get("file_path", "") or inp.get("notebook_path", "")
                 )
-                if file_path:
-                    result = check_path(
-                        file_path, mode_policy, project_dir=self._project_dir,
+                result = self._checked_guard(
+                    check_path, file_path, mode_policy,
+                )
+            elif tool in _INTERCEPT_TOOLS:
+                command = inp.get("command", "")
+                if command:
+                    result = self._checked_guard(
+                        check_bash_writes,
+                        _strip_heredocs(command),
+                        mode_policy,
                     )
-                    if not result.allowed:
-                        violations.append(
-                            CallResult(denied=True, reason=result.reason, tool=tool)
-                        )
+            if result is not None and not result.allowed:
+                violations.append(
+                    CallResult(denied=True, reason=result.reason, tool=tool)
+                )
         return violations
 
     def change_mode(self, mode: str, reason: str = "") -> dict[str, Any]:
@@ -1134,38 +1154,93 @@ class KibitzerSession:
                 return result
         return get_mode_policy(self._config, mode)
 
+    def _safe_mode_policy(self) -> dict[str, Any]:
+        """Resolve the current mode policy, failing CLOSED on any error."""
+        try:
+            return self._resolve_mode_policy(self.mode)
+        except Exception:
+            return {"writable": [], "strategy": ""}
+
+    def _checked_guard(self, guard, target, mode_policy) -> PathGuardResult:
+        """Run a guard function; any exception denies (fail closed).
+
+        The guards already catch their own errors, but this also covers
+        failures in the call itself so safe_mode's blanket exception
+        handling can never turn a guard failure into an allow.
+        """
+        try:
+            return guard(target, mode_policy, project_dir=self._project_dir)
+        except Exception as exc:
+            return PathGuardResult(
+                allowed=False,
+                reason=(
+                    f"Path guard error: {exc!r} — denying (fail closed)."
+                ),
+            )
+
+    def _log_denial(
+        self, tool_name: str, tool_input: dict, reason: str,
+    ) -> None:
+        """Record a denial event; logging failures never mask the denial."""
+        if not self._store:
+            return
+        try:
+            self._store.append_event(
+                event_type="denial",
+                session_id=self._state.get("session_id"),
+                tool_name=tool_name,
+                tool_input=json.dumps(tool_input)[:500],
+                mode=self.mode,
+                data=json.dumps({"reason": reason}),
+            )
+        except Exception:
+            pass
+
     def _before_call_impl(
         self, tool_name: str, tool_input: dict,
     ) -> CallResult | None:
-        mode_policy = self._resolve_mode_policy(self.mode)
+        mode_policy = self._safe_mode_policy()
 
-        # Path guard
+        # Path guard — canonicalizes against the project dir and fails
+        # closed (an error in the guard denies rather than allows).
         if tool_name in _WRITE_TOOLS:
             file_path = (
                 tool_input.get("file_path", "")
                 or tool_input.get("notebook_path", "")
             )
+            # Safety floor: mode-independent deny-list, checked BEFORE
+            # the mode's writable set (applies even in free mode).
             if file_path:
-                # Safety floor: mode-independent deny-list, checked BEFORE
-                # the mode's writable set (applies even in free mode).
                 floor_denial = self._check_floor(
                     tool_name, tool_input, file_path, mode_policy,
                 )
                 if floor_denial is not None:
                     return floor_denial
-                result = check_path(
-                    file_path, mode_policy, project_dir=self._project_dir,
+            result = self._checked_guard(check_path, file_path, mode_policy)
+            if not result.allowed:
+                self._log_denial(tool_name, tool_input, result.reason)
+                return CallResult(
+                    denied=True, reason=result.reason, tool=tool_name,
+                )
+
+        # Bash write vectors go through the same guards: the safety floor
+        # runs on each statically extracted write target first (so a
+        # `> ~/.ssh/authorized_keys` floor-blocks just like a Write would,
+        # even in free mode), then the canonicalized mode check.
+        if tool_name in _INTERCEPT_TOOLS:
+            command = tool_input.get("command", "")
+            if command:
+                scan = _strip_heredocs(command)
+                floor_denial = self._check_floor_bash(
+                    tool_name, tool_input, scan, mode_policy,
+                )
+                if floor_denial is not None:
+                    return floor_denial
+                result = self._checked_guard(
+                    check_bash_writes, scan, mode_policy,
                 )
                 if not result.allowed:
-                    if self._store:
-                        self._store.append_event(
-                            event_type="denial",
-                            session_id=self._state.get("session_id"),
-                            tool_name=tool_name,
-                            tool_input=json.dumps(tool_input)[:500],
-                            mode=self.mode,
-                            data=json.dumps({"reason": result.reason}),
-                        )
+                    self._log_denial(tool_name, tool_input, result.reason)
                     return CallResult(
                         denied=True, reason=result.reason, tool=tool_name,
                     )
@@ -1437,6 +1512,37 @@ class KibitzerSession:
                 source="kibitzer",
             )
         return CallResult(denied=True, reason=floor.reason, tool=tool_name)
+
+    def _check_floor_bash(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        command: str,
+        mode_policy: dict,
+    ) -> CallResult | None:
+        """Floor-check each statically extracted Bash write target.
+
+        Per target this is exactly ``_check_floor`` (fail OPEN on floor
+        internal errors, ``floor_block`` event on a block, explicit-writable
+        mode override). Extraction failures and statically opaque commands
+        yield no floor opinion (fail open) — the mode-level
+        ``check_bash_writes`` still runs after this and fails CLOSED on
+        those in restricted modes.
+        """
+        floor_cfg = self._config.get("floor", {})
+        if not floor_cfg.get("enabled", True):
+            return None
+        try:
+            targets = extract_bash_write_targets(command)
+        except Exception:
+            return None  # fail open — mode-level guard still runs
+        for target in targets:
+            denial = self._check_floor(
+                tool_name, tool_input, target, mode_policy,
+            )
+            if denial is not None:
+                return denial
+        return None
 
     # --- A/B nudge experiment ---
 

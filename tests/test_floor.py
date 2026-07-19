@@ -314,3 +314,68 @@ class TestFloorSessionIntegration:
             project_dir=proj,
         )
         assert result is None
+
+
+class TestFloorOnBashTargets:
+    """Synthesis of the floor with Bash write-vector extraction: statically
+    extracted Bash write targets are floor-checked (mode-independent, even
+    in free mode) BEFORE the mode-level check_bash_writes runs."""
+
+    def test_bash_redirect_to_ssh_floor_blocked(self, tmp_path):
+        # `> ~/.ssh/...` floor-blocks just like a Write would, in free mode.
+        proj = _project(tmp_path)
+        result = handle_pre_tool_use(
+            {"tool_name": "Bash",
+             "tool_input": {"command": "echo x > ~/.ssh/kibitzer_floor_probe"}},
+            project_dir=proj,
+        )
+        assert result is not None
+        out = result["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny"
+        assert "secret-dir" in out["permissionDecisionReason"]
+        store = KibitzerStore(proj / ".kibitzer" / "store.sqlite")
+        events = store.query_events(event_type="floor_block")
+        assert len(events) == 1
+        assert events[0]["tool_name"] == "Bash"
+
+    def test_bash_target_in_sibling_repo_allowed(self, tmp_path):
+        # A bash write into ANY git working tree is deliberate multi-repo
+        # work, not a stray write (tmp allowance disabled so the sibling-repo
+        # rule itself is what allows it).
+        (tmp_path / "proj").mkdir()
+        proj = _project(tmp_path / "proj")
+        sibling = tmp_path / "sibling"
+        (sibling / ".git").mkdir(parents=True)
+        with patch(
+            "kibitzer.guards.path_guard._default_tmp_dirs", return_value=[],
+        ):
+            result = handle_pre_tool_use(
+                {"tool_name": "Bash",
+                 "tool_input": {"command": f"echo x > {sibling}/notes.txt"}},
+                project_dir=proj,
+            )
+        # Interceptors may still attach an advisory nudge; the point is
+        # that nothing DENIES the sibling-repo write.
+        if result is not None:
+            out = result["hookSpecificOutput"]
+            assert out.get("permissionDecision") != "deny"
+
+    def test_unknown_mode_fail_closed_while_floor_fails_open(self, tmp_path):
+        # The two error philosophies coexist: a broken floor fails OPEN
+        # (never blocks), while an unknown mode still fails CLOSED (denies)
+        # at the mode-level check.
+        proj = _project(tmp_path, mode="no-such-mode")
+        with patch(
+            "kibitzer.session.check_floor", side_effect=RuntimeError("boom"),
+        ):
+            result = handle_pre_tool_use(
+                {"tool_name": "Write",
+                 "tool_input": {"file_path": "src/x.py", "content": "x"}},
+                project_dir=proj,
+            )
+        assert result is not None
+        out = result["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny"
+        assert "read-only" in out["permissionDecisionReason"]
+        store = KibitzerStore(proj / ".kibitzer" / "store.sqlite")
+        assert len(store.query_events(event_type="floor_error")) == 1

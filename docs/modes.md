@@ -1,8 +1,10 @@
 # Modes
 
-Kibitzer enforces what the agent can write based on the current mode. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call against the mode's `writable` list. If the path doesn't match a writable prefix, the call is denied with a reason that tells the agent how to switch.
+Kibitzer restricts what the agent can write based on the current mode. The path guard checks every `Edit`, `Write`, and `NotebookEdit` call against the mode's `writable` list, and statically scans `Bash` commands for common write vectors (redirections, `tee`, `cp`, `mv`, `rm`, `sed -i`, `ln`, ...). If the target doesn't resolve into a writable path, the call is denied with a reason that tells the agent how to switch.
 
-Bash writes are not guarded — that's [blq's sandbox enforcement](integration.md#blq) domain.
+Before comparing, the guard **canonicalizes** the target against the project directory — symlinks are followed, `.`/`..` are collapsed, and absolute and relative spellings of the same location compare equal. The guard **fails closed**: an unknown mode, a missing target path, an unparseable Bash command in a restricted mode, or an internal guard error denies the write.
+
+Bash coverage is a static analysis of the command string, not a shell interpreter — see [Scope and limits](#scope-and-limits) below for what it cannot see.
 
 ## The 6 modes
 
@@ -12,17 +14,17 @@ Bash writes are not guarded — that's [blq's sandbox enforcement](integration.m
 - **When to use:** Prototyping, exploration, or when the guardrails are getting in the way. The coach will suggest switching if you've been in free mode for a while with a lot of failures.
 
 ### `implement`
-- **Writable:** `src/`, `lib/`
+- **Writable:** `src/`, `lib/`, `tests/`, `test/`, `~/.claude/projects/*/memory/`
 - **Strategy:** none
-- **When to use:** Normal development. Tests are protected (can't accidentally modify them to pass). Config files are protected. This is the default mode.
+- **When to use:** Normal development. Tests are writable alongside source (test-alongside-code TDD doesn't thrash between modes). Config files are protected.
 
 ### `test`
-- **Writable:** `tests/`, `test/`, `spec/`
+- **Writable:** `tests/`, `test/`, `spec/`, `~/.claude/projects/*/memory/`
 - **Strategy:** "Write tests for expected behavior, not current behavior."
 - **When to use:** Writing or updating tests. Source code is protected — you can't change implementation to match broken tests.
 
 ### `docs`
-- **Writable:** `docs/`, `README.md`, `CHANGELOG.md`
+- **Writable:** `docs/`, `README.md`, `CHANGELOG.md`, `~/.claude/projects/*/memory/`
 - **Strategy:** "Explain the why, not the what."
 - **When to use:** Writing documentation. Source and tests are protected. The coach suppresses edit-without-test suggestions in this mode (docs don't need test runs).
 
@@ -38,7 +40,19 @@ Bash writes are not guarded — that's [blq's sandbox enforcement](integration.m
 
 ## Path matching
 
-Writable paths are prefix-matched. `"src/"` matches `src/foo/bar.py`. `"README.md"` matches `README.md` exactly. `["*"]` means everything is writable. `[]` means nothing is writable (read-only).
+Writable entries are matched by **canonical path containment**, not string prefix. `"src/"` matches `src/foo/bar.py` (and any path — absolute, relative, `..`-laden, or symlinked — that resolves inside `src/`), but not `src_secret/`. `"README.md"` matches `README.md` exactly, not `README.md.bak`. Entries containing glob characters (absolute or `~`-prefixed, e.g. `~/.claude/projects/*/memory/`) are expanded at check time and matched as patterns against the canonical target. `["*"]` means everything is writable. `[]` means nothing is writable (read-only). Unknown mode names resolve to `[]`.
+
+A mode-independent **safety floor** runs before any writable set (even `["*"]`): secret dirs, system paths, raw `.git` internals, and writes outside any git working tree are denied regardless of mode, for `Edit`/`Write`/`NotebookEdit` targets and statically extracted Bash write targets alike. Configure it via `[floor]` (`enabled` / `deny` / `allow`); an explicit (non-`*`) writable entry in the current mode outranks the floor.
+
+## Scope and limits
+
+Path protection is one layer, not a sandbox:
+
+- **Bash coverage is static.** The guard analyzes the command string for redirections and a table of common write commands. Writes hidden behind interpreter one-liners (`python -c ...`), scripts fed on stdin, `make` targets, or git commands that mutate the tree are not visible to it. Opaque write constructs it *can* spot — `xargs rm`, process substitution targets, unparseable quoting — are denied in restricted modes rather than waved through.
+- **Check-then-act window.** Symlinks are resolved at decision time; a race that swaps a path component between the check and the actual write is not preventable at this layer.
+- **`free` mode is unguarded by design** (`["*"]`) and is the default. Set a restricted `default_mode` in `.kibitzer/config.toml` if you want the guard active from the first call.
+
+For a hard boundary, compose kibitzer with the Claude Code permission system and an OS-level sandbox (e.g. an umwelt-compiled policy under nsjail). Kibitzer keeps a cooperating-but-fallible agent on task; the sandbox bounds what a misbehaving process can do.
 
 ## Switching modes
 
