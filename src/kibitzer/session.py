@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import random
 import re
@@ -1518,6 +1519,9 @@ class KibitzerSession:
         log_path = self._project_dir / _LOG_FILE
         log_path.parent.mkdir(parents=True, exist_ok=True)
         entry = {
+            # Named "timestamp" to match what agent-riggs' ingest source reads;
+            # older lines without it get stamped at ingest time instead.
+            "timestamp": datetime.datetime.now().astimezone().isoformat(),
             "bash_command": command[:200],
             "suggested_tool": suggestion.tool,
             "reason": suggestion.reason,
