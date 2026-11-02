@@ -14,7 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      # PINNED. `pip install ruff` is unbounded, so the lint result could change
+      # with no commit -- and did: the default rule set widened between the last
+      # green run and 2026-11-02. The explicit `select` in pyproject.toml is the
+      # real guard; this pin keeps the result reproducible within that set.
+      - run: pip install "ruff==0.17.3"
       - run: ruff check src/ tests/
 
   test:

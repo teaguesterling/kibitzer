@@ -84,6 +84,21 @@ pluckit = [
 # The bare `umwelt` name on PyPI is an unrelated 2019 package that conflicts
 # with mcp[cli], so pinning it was both wrong and harmful.)
 
+[tool.ruff.lint]
+# DECLARED, because ruff's default select is not a constant. This project was
+# green on ruff's old default of E4/E7/E9/F. Later ruff releases widened the
+# default set to include BLE, S, SIM, UP, RUF, PIE, PL, I and more, so ruff
+# 0.17.3 reported 133 errors against code that had not changed since the last
+# green run (2026-07-19). MEASURED on that unchanged tree: the default set gives
+# 133 errors, `--select E4,E7,E9,F` gives "All checks passed!".
+#
+# This restores the rule set the project actually enforced; it suppresses
+# nothing that was ever enforced here. Widening it is a deliberate choice to
+# make later, one rule family at a time -- 34 blind-except and 10
+# try-except-pass findings are real judgments about error handling, not
+# formatting, and they deserve their own review rather than a bulk --fix.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.lint.per-file-ignores]
 # tests legitimately carry availability-probe imports (F401) and setup-only
 # locals (F841); don't fail lint on them.
