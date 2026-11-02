@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kibitzer"
-version = "0.9.0"
+version = "0.9.1"
 description = "Claude Code extension that watches agent tool calls and suggests structured alternatives"
 readme = "README.md"
 license = "MIT"
@@ -29,7 +29,12 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1",
-    "mcp[cli]>=1.0",
+    # Upper bound: mcp 2.x RENAMED FastMCP to MCPServer and removed
+    # mcp.server.fastmcp, which kibitzer.mcp.server imports. MEASURED in one venv,
+    # one variable: mcp 1.30.0 boots `kibitzer mcp serve` exit 0, mcp 2.3.0 exits 1
+    # with `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`. This cap is a
+    # STOPGAP, not the fix -- the migration to MCPServer is the fix.
+    "mcp[cli]>=1.0,<2",
     # The shared failure-mode taxonomy (kibitzer.failure_modes imports it) — the
     # dependency-free lackpy language leaf, not the full lackpy runtime.
     "lackpy-lang>=0.12",
